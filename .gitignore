@@ -1,0 +1,40 @@
+# Local AI-assistant configuration (private, never committed)
+/CLAUDE.md
+.claude/
+.idea/
+
+# Plan implementer notes (AI/developer reference, not for commit)
+docs/plans/**/IMPLEMENTER_NOTES.md
+
+# Secrets. The app reads an Anthropic API key from the environment or an
+# optional .env file - neither must ever reach the repository.
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# Test coverage artifacts
+.coverage
+.coverage.*
+/htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+
+# macOS metadata
+.DS_Store
+
+# crossroads-uk databases used for local testing. These are large build
+# artifacts belonging to the companion project, not source for this one.
+*.db
+*.duckdb
+# DuckDB write-ahead log (e.g. crossroads.db.wal), transient
+*.wal
