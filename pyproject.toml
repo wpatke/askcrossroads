@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "askcrossroads"
+version = "0.1.0"
+description = "Ask questions of a Crossroads-UK road-safety database in plain English."
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "wpatke" }]
+keywords = ["uk", "road-safety", "stats19", "duckdb", "natural-language", "sql"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Operating System :: OS Independent",
+  "Topic :: Scientific/Engineering",
+]
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+  "duckdb>=1.5",
+  "anthropic>=0.40",
+  "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+askcrossroads = "askcrossroads.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/askcrossroads"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Integration tests are slow, need an Anthropic API key, and need a real Crossroads-UK
+# build. They are deselected by default so the normal suite stays fast, offline and
+# deterministic (spec §11.1). A person runs them deliberately with:
+#   pytest -m integration
+addopts = "-m 'not integration'"
+markers = [
+  "integration: real API calls and/or a real Crossroads-UK build (slow, needs a key and network); deselected by default, run with -m integration",
+]
