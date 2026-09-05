@@ -8,6 +8,14 @@ new kind would simply be ignored, with no error anywhere. This test is the guard
 Marked `integration` because answering "what does a real build use?" needs a real build.
 Per spec §11.2 it skips — never fails — when one is not available, so a contributor
 without a build gets a clean skip rather than a red suite.
+
+Known v1 shortcoming: this only checks the one file `ASKCROSSROADS_TEST_DB` points at. If
+that file was built by an older crossroads-uk release, a classification added in a newer
+release won't be in it, and this test will pass without having actually looked for it. It
+only stays meaningful if whoever maintains that file periodically rebuilds it against the
+current crossroads-uk version. A later version of this project could fix that properly
+(e.g. building a fresh file as part of the test); for v1 it's a manual process, not an
+automated guarantee.
 """
 
 import os
