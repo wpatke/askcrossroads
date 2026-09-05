@@ -179,7 +179,8 @@ def _labelled_view_sql(table, coded_columns):
 
 
 def _write_convention_tables(con, *, convention, datasets, years, boundary_mode,
-                             crossroads_version, schema_version, built_at_utc):
+                             crossroads_version, schema_version, built_at_utc,
+                             extra_meta_column=False):
     """Write codebook, column_manifest and crossroads_meta in the requested state."""
     if convention == "missing":
         # A perfectly valid DuckDB file that is simply not a Crossroads-UK build.
@@ -204,10 +205,14 @@ def _write_convention_tables(con, *, convention, datasets, years, boundary_mode,
     )
     con.executemany("INSERT INTO column_manifest VALUES (?, ?, ?, ?)", MANIFEST_ROWS)
 
+    # `extra_meta_column` simulates a future Crossroads-UK release that adds a column.
+    # A subset check must still accept the build; an exact-set check would refuse it.
     con.execute(
         "CREATE TABLE crossroads_meta ("
         "crossroads_version VARCHAR, schema_version INTEGER, "
-        "built_at_utc TIMESTAMP, parameters VARCHAR)"
+        "built_at_utc TIMESTAMP, parameters VARCHAR"
+        + (", build_host VARCHAR" if extra_meta_column else "")
+        + ")"
     )
     # `parameters` is a JSON string upstream, with sorted keys so the same arguments
     # always serialise identically.
@@ -220,7 +225,9 @@ def _write_convention_tables(con, *, convention, datasets, years, boundary_mode,
         sort_keys=True,
     )
     con.execute(
-        "INSERT INTO crossroads_meta VALUES (?, ?, ?, ?)",
+        "INSERT INTO crossroads_meta "
+        "(crossroads_version, schema_version, built_at_utc, parameters) "
+        "VALUES (?, ?, ?, ?)",
         [crossroads_version, schema_version, built_at_utc, parameters],
     )
 
@@ -235,6 +242,7 @@ def build_crossroads_db(
     schema_version=4,
     built_at_utc=DEFAULT_BUILT_AT,
     convention="full",
+    extra_meta_column=False,
 ):
     """Build a small synthetic Crossroads-UK database at `path` and return the path.
 
@@ -243,6 +251,9 @@ def build_crossroads_db(
     years       the years the collision rows fall in, cycled across the rows.
     convention  "full" (a valid build), "missing" (no convention tables at all), or
                 "wrong_shape" (the three tables exist by name with the wrong columns).
+    extra_meta_column  add a column to `crossroads_meta` beyond what AskCrossroads
+                requires, simulating a future Crossroads-UK release (a subset check
+                must still accept the build).
 
     The connection is closed before returning, so the file is complete and can then be
     opened read-only.
@@ -265,6 +276,7 @@ def build_crossroads_db(
             crossroads_version=crossroads_version,
             schema_version=schema_version,
             built_at_utc=built_at_utc,
+            extra_meta_column=extra_meta_column,
         )
 
         con.execute(

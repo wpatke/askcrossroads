@@ -31,6 +31,16 @@ ENV_API_KEY = "ANTHROPIC_API_KEY"
 ENV_DATABASE = "ASKCROSSROADS_DB"
 DEFAULT_ENV_FILE = ".env"
 
+# How a user obtains a valid database. Shown both when configuration is missing and when
+# the configured file turns out not to be a Crossroads-UK build, so it is written once
+# here rather than drifting apart in two places.
+HOW_TO_GET_A_DATABASE = (
+    "AskCrossroads reads databases built by Crossroads-UK:\n"
+    "\n"
+    "    pip install crossroads-uk\n"
+    "    crossroads\n"
+)
+
 # Shown after any configuration problem, so the message tells the user what to do next
 # rather than only what went wrong.
 HOW_TO_CONFIGURE = (
@@ -40,11 +50,9 @@ HOW_TO_CONFIGURE = (
     f"    {ENV_API_KEY}=your-key-here\n"
     f"    {ENV_DATABASE}=/path/to/your/crossroads.db\n"
     "\n"
-    "See .env.example. The database is a file built by Crossroads-UK:\n"
+    "See .env.example.\n"
     "\n"
-    "    pip install crossroads-uk\n"
-    "    crossroads\n"
-)
+) + HOW_TO_GET_A_DATABASE
 
 
 class ConfigError(Exception):

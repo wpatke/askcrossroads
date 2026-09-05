@@ -43,20 +43,21 @@ def test_static_directory_exists():
     assert static.is_dir()
 
 
-def test_console_script_runs(tmp_path):
+def test_console_script_runs(tmp_path, crossroads_db):
     """The installed `askcrossroads` command resolves and exits cleanly when configured.
 
     The script lives in the environment's scripts directory, which is inside the
     virtual environment when the tests are run from one. A database path and an API
     key are supplied explicitly (never the developer's own ambient environment or a
     real credential) so this test proves the script is wired up correctly rather than
-    depending on whatever happens to be configured on the machine it runs on.
+    depending on whatever happens to be configured on the machine it runs on. The
+    database is a real synthetic build, not a placeholder file, since the script now
+    opens and validates it.
     """
     script = Path(sysconfig.get_path("scripts")) / "askcrossroads"
     assert script.exists(), f"console script not found at {script}; is the package installed?"
 
-    database = tmp_path / "crossroads.db"
-    database.write_bytes(b"not a real database")
+    database = crossroads_db
     env = {
         "PATH": os.environ.get("PATH", ""),
         "ANTHROPIC_API_KEY": "test-key-not-a-real-credential",

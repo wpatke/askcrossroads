@@ -198,14 +198,13 @@ def test_main_exits_non_zero_when_not_configured(tmp_path, monkeypatch, capsys):
     assert "ASKCROSSROADS_DB" in captured.err
 
 
-def test_main_exits_zero_when_configured(tmp_path, monkeypatch, capsys):
-    database = tmp_path / "crossroads.db"
-    database.write_bytes(b"not a real database")
+def test_main_exits_zero_when_configured(tmp_path, monkeypatch, capsys, crossroads_db):
+    database = crossroads_db
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ANTHROPIC_API_KEY", FAKE_KEY)
     monkeypatch.setenv("ASKCROSSROADS_DB", str(database))
     assert main() == 0
     captured = capsys.readouterr()
-    assert "crossroads.db" in captured.out
+    assert str(database) in captured.out
     assert FAKE_KEY not in captured.out
     assert FAKE_KEY not in captured.err
