@@ -1,13 +1,19 @@
-"""Read-only DuckDB connection and Crossroads-UK convention validation (spec §1, §2, §5).
+"""Read-only DuckDB connection, Crossroads-UK convention validation, and provenance
+(spec §1, §2, §5).
 
 This module answers, in order, three questions about the file the user configured: can it
-be opened at all, is it a Crossroads-UK build, and what built it. The first two are
-implemented so far.
+be opened at all, is it a Crossroads-UK build, and what built it. It then bundles those
+answers together with the runtime discovery in introspection.py into one immutable
+DatabaseContext that the rest of the application reads and never rebuilds.
 """
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
 
 import duckdb
 
-from askcrossroads import config
+from askcrossroads import config, introspection
 
 # The ONLY structure AskCrossroads is permitted to assume (spec §2C): three table names,
 # and the columns each must carry. Everything else about a build is discovered at
@@ -83,6 +89,16 @@ def _in_english(names):
     return ", ".join(names[:-1]) + " or " + names[-1]
 
 
+def _refusal(problems):
+    """The spec §1 message: what was wrong, then how to get a file that is not."""
+    return (
+        "This file does not look like a Crossroads-UK database: "
+        + "; ".join(problems)
+        + ".\n\n"
+        + config.HOW_TO_GET_A_DATABASE
+    )
+
+
 def _convention_columns(connection):
     """{table name: {column names}} for whichever convention tables exist.
 
@@ -151,9 +167,188 @@ def validate_conventions(connection):
                 problems.append(f"`{name}` could not be read ({error})")
 
     if problems:
+        raise NotACrossroadsBuild(_refusal(problems))
+
+
+@dataclass(frozen=True)
+class Provenance:
+    """What built this file (spec §2D).
+
+    Displayed to the user, never used to gate acceptance: because structure is discovered
+    at runtime, a newer or older schema_version is not inherently unusable, and refusing
+    on a version number would reject working files.
+
+    The build parameters are held as the raw JSON string upstream wrote, and decoded on
+    demand. Storing a decoded dict would put a mutable object inside a frozen dataclass,
+    which would quietly defeat the immutability this object exists to provide.
+    """
+
+    crossroads_version: str
+    schema_version: int
+    built_at_utc: object
+    parameters_json: str
+
+    @property
+    def parameters(self):
+        """The build parameters — datasets, years, boundary mode — as a dict.
+
+        Returns {} when the field is absent or is not a JSON object. Provenance is
+        display material rather than a gate, so a build whose parameters field is
+        unreadable is still perfectly usable and this must not raise.
+        """
+        try:
+            decoded = json.loads(self.parameters_json or "")
+        except (TypeError, ValueError):
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
+
+    def as_dict(self):
+        """A JSON-safe form, for the /api/database response (spec §9)."""
+        return {
+            "crossroads_version": self.crossroads_version,
+            "schema_version": self.schema_version,
+            "built_at_utc": (
+                self.built_at_utc.isoformat() if self.built_at_utc is not None else None
+            ),
+            "parameters": self.parameters,
+        }
+
+
+def read_provenance(connection):
+    """Read the crossroads_meta row.
+
+    A Crossroads-UK build writes exactly one, replaced on each rebuild. An empty table is
+    a refusal: the file has the right shape but no record of what produced it, so nothing
+    downstream could report provenance to the user. More than one row is not an error —
+    the most recent is taken.
+    """
+    row = connection.execute(
+        "SELECT crossroads_version, schema_version, built_at_utc, parameters "
+        "FROM crossroads_meta ORDER BY built_at_utc DESC LIMIT 1"
+    ).fetchone()
+    if row is None:
         raise NotACrossroadsBuild(
-            "This file does not look like a Crossroads-UK database: "
-            + "; ".join(problems)
-            + ".\n\n"
-            + config.HOW_TO_GET_A_DATABASE
+            _refusal(["`crossroads_meta` is empty, so nothing records what built this file"])
         )
+
+    crossroads_version, schema_version, built_at_utc, parameters = row
+    return Provenance(
+        crossroads_version=crossroads_version,
+        schema_version=schema_version,
+        built_at_utc=built_at_utc,
+        parameters_json=parameters,
+    )
+
+
+@dataclass(frozen=True)
+class DatabaseContext:
+    """Everything the rest of the application knows about the open file.
+
+    Built once, when the database is opened, and never rebuilt: spec §3 requires the
+    prompt prefix to be byte-identical for a given database, and re-reading the file per
+    question would be both slower and a way for that to quietly stop being true.
+
+    Every field is a TUPLE rather than a list, set, or dict. @dataclass(frozen=True) only
+    stops the fields being reassigned; a list inside one is still mutable, and a caller
+    that appended to it would change what every later question sees.
+    """
+
+    path: Path
+    provenance: Provenance
+    relations: tuple
+    codebook: tuple
+    column_manifest: tuple
+    temporal_ranges: tuple
+
+    @property
+    def tables(self):
+        """Stored tables only, in name order."""
+        return tuple(r for r in self.relations if not r.is_view)
+
+    @property
+    def views(self):
+        """Views only, in name order."""
+        return tuple(r for r in self.relations if r.is_view)
+
+    def relation(self, name):
+        """The relation with this name, or None if the build does not have one.
+
+        This is how a weatherless build is handled: there is no weather relation, so this
+        returns None and nothing offers one to the prompt (spec §6).
+        """
+        for relation in self.relations:
+            if relation.name == name:
+                return relation
+        return None
+
+    @property
+    def coded_columns(self):
+        """Manifest entries classified `coded` — the columns carrying DfT codes.
+
+        `coded` is the ONLY manifest kind anything branches on. Every other value is
+        carried through verbatim, including one this project has never seen: structure
+        comes from information_schema, so an unfamiliar classification loses no column.
+
+        Remember ManifestEntry.tbl is the singular SOURCE name ('collision'), not a table
+        name ('collisions'). Do not join it to a relation name.
+        """
+        return tuple(e for e in self.column_manifest if e.kind == "coded")
+
+    @property
+    def coded_column_names(self):
+        """The distinct names of coded columns, sorted."""
+        return tuple(sorted({e.col for e in self.coded_columns}))
+
+    @property
+    def manifest_kinds(self):
+        """Every classification this build's manifest actually uses, sorted."""
+        return tuple(sorted({e.kind for e in self.column_manifest if e.kind}))
+
+
+class Database:
+    """The one open connection, and the facts read from it.
+
+    Spec §5 is explicit that v1 holds one connection and runs one query at a time,
+    because interrupt() cancels the connection rather than a particular query. So this is
+    created once at startup and shared, never one per request.
+    """
+
+    def __init__(self, connection, context):
+        self.connection = connection
+        self.context = context
+
+    @classmethod
+    def open(cls, path):
+        """Open, validate and introspect `path`.
+
+        Raises DatabaseError when the file cannot be opened, and NotACrossroadsBuild when
+        it opens but is not a Crossroads-UK build. The connection is closed before either
+        is raised, so a refusal leaves no file handle behind.
+        """
+        connection = open_database(path)
+        try:
+            validate_conventions(connection)
+            relations = introspection.discover_relations(connection)
+            context = DatabaseContext(
+                path=Path(path),
+                provenance=read_provenance(connection),
+                relations=relations,
+                codebook=introspection.load_codebook(connection),
+                column_manifest=introspection.load_column_manifest(connection),
+                temporal_ranges=introspection.temporal_ranges(connection, relations),
+            )
+        except Exception:
+            # A refusal must not leave the file open.
+            connection.close()
+            raise
+        return cls(connection, context)
+
+    def close(self):
+        self.connection.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exception):
+        self.close()
+        return False

@@ -16,7 +16,7 @@ anywhere in src/ — spec §2C requires the application to discover all of this 
 
 import itertools
 import json
-from datetime import datetime
+from datetime import date, datetime
 
 import duckdb
 import pytest
@@ -31,6 +31,7 @@ MANIFEST_KINDS = ("identity", "geo", "datetime", "coded", "numeric", "text")
 STATS19 = "stats19"
 ERA5_WEATHER = "era5_weather"
 AADF = "aadf"
+BANK_HOLIDAYS = "bank_holidays"
 
 # A fixed build timestamp, so two builds with the same arguments are identical. Spec
 # §11.4 requires a byte-stable prompt prefix, and that test is impossible if the
@@ -142,6 +143,24 @@ AADF_ROWS = [
     ("CP1003", "M25", 132400.0, 532500.0, 182500.0),
 ]
 
+# (month, day, title). The year comes from the build's `years` argument, like the
+# collision rows.
+#
+# The bank_holidays table exists in the fixture for one reason: it carries the two traps
+# that make "date columns are found by TYPE, never by name" (spec §6) a testable claim.
+#
+#   `date`      is a real DATE column. Code that only looks for TIMESTAMP misses it.
+#   `date_raw`  is VARCHAR with a date-like name. Code that matches on names wrongly
+#               treats it as a date.
+#
+# Both mirror upstream: a real build has bank_holidays.date DATE, and Crossroads-UK's
+# keep-in-place model carries every cleansed field twice, the second verbatim as a string.
+BANK_HOLIDAY_ROWS = [
+    (1, 1, "New Year's Day"),
+    (4, 7, "Good Friday"),
+    (12, 25, "Christmas Day"),
+]
+
 
 def _accident_index(key, year):
     """A stable, readable stand-in for an upstream collision reference."""
@@ -180,7 +199,7 @@ def _labelled_view_sql(table, coded_columns):
 
 def _write_convention_tables(con, *, convention, datasets, years, boundary_mode,
                              crossroads_version, schema_version, built_at_utc,
-                             extra_meta_column=False):
+                             extra_meta_column=False, include_meta_row=True):
     """Write codebook, column_manifest and crossroads_meta in the requested state."""
     if convention == "missing":
         # A perfectly valid DuckDB file that is simply not a Crossroads-UK build.
@@ -224,12 +243,15 @@ def _write_convention_tables(con, *, convention, datasets, years, boundary_mode,
         },
         sort_keys=True,
     )
-    con.execute(
-        "INSERT INTO crossroads_meta "
-        "(crossroads_version, schema_version, built_at_utc, parameters) "
-        "VALUES (?, ?, ?, ?)",
-        [crossroads_version, schema_version, built_at_utc, parameters],
-    )
+    # A real build always writes exactly one row. include_meta_row=False produces a
+    # file whose shape is right but whose provenance is absent.
+    if include_meta_row:
+        con.execute(
+            "INSERT INTO crossroads_meta "
+            "(crossroads_version, schema_version, built_at_utc, parameters) "
+            "VALUES (?, ?, ?, ?)",
+            [crossroads_version, schema_version, built_at_utc, parameters],
+        )
 
 
 def build_crossroads_db(
@@ -243,17 +265,22 @@ def build_crossroads_db(
     built_at_utc=DEFAULT_BUILT_AT,
     convention="full",
     extra_meta_column=False,
+    include_meta_row=True,
 ):
     """Build a small synthetic Crossroads-UK database at `path` and return the path.
 
     datasets    which optional datasets are present. "stats19" is always built; add
-                ERA5_WEATHER for a `weather` table and AADF for an `aadf` table.
+                ERA5_WEATHER for a `weather` table, AADF for an `aadf` table, and
+                BANK_HOLIDAYS for a `bank_holidays` table.
     years       the years the collision rows fall in, cycled across the rows.
     convention  "full" (a valid build), "missing" (no convention tables at all), or
                 "wrong_shape" (the three tables exist by name with the wrong columns).
     extra_meta_column  add a column to `crossroads_meta` beyond what AskCrossroads
                 requires, simulating a future Crossroads-UK release (a subset check
                 must still accept the build).
+    include_meta_row  a real build always writes exactly one crossroads_meta row.
+                False produces a file whose shape is right but whose provenance is
+                absent.
 
     The connection is closed before returning, so the file is complete and can then be
     opened read-only.
@@ -277,6 +304,7 @@ def build_crossroads_db(
             schema_version=schema_version,
             built_at_utc=built_at_utc,
             extra_meta_column=extra_meta_column,
+            include_meta_row=include_meta_row,
         )
 
         con.execute(
@@ -359,6 +387,37 @@ def build_crossroads_db(
                 "SELECT * FROM aadf WHERE geom_valid AND count_valid"
             )
 
+        if BANK_HOLIDAYS in datasets:
+            con.execute(
+                "CREATE TABLE bank_holidays ("
+                "source_row_key VARCHAR, date DATE, date_raw VARCHAR, "
+                "division VARCHAR, title VARCHAR, bunting BOOLEAN)"
+            )
+            holidays = []
+            for i, (month, day, title) in enumerate(BANK_HOLIDAY_ROWS):
+                year = years[i % len(years)]
+                on = date(year, month, day)
+                holidays.append(
+                    (f"bh{i}", on, on.isoformat(), "england-and-wales", title, True)
+                )
+            con.executemany(
+                "INSERT INTO bank_holidays VALUES (?, ?, ?, ?, ?, ?)", holidays
+            )
+            # Upstream has no reject flag for this dimension, so the view is an
+            # unfiltered passthrough kept for naming consistency.
+            con.execute(
+                "CREATE VIEW bank_holidays_clean AS SELECT * FROM bank_holidays"
+            )
+
+        # An always-present table that is always EMPTY, mirroring upstream's landing
+        # place for lines that could not be parsed at all. Its TIMESTAMP column is how
+        # the empty-table case gets tested: MIN and MAX both return NULL.
+        con.execute(
+            "CREATE TABLE quarantine_raw ("
+            "source_id VARCHAR, raw_text VARCHAR, reason VARCHAR, "
+            "ingested_at TIMESTAMP)"
+        )
+
         # Filtered views exist on every build.
         con.execute("CREATE VIEW collisions_spatial AS SELECT * FROM collisions WHERE geom_valid")
         con.execute("CREATE VIEW vehicles_clean AS SELECT * FROM vehicles WHERE link_valid")
@@ -394,7 +453,7 @@ def crossroads_db_factory(tmp_path):
 @pytest.fixture
 def crossroads_db(crossroads_db_factory):
     """A valid build with every dataset present — the default for most tests."""
-    return crossroads_db_factory(datasets=(STATS19, ERA5_WEATHER, AADF))
+    return crossroads_db_factory(datasets=(STATS19, ERA5_WEATHER, AADF, BANK_HOLIDAYS))
 
 
 @pytest.fixture

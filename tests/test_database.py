@@ -16,6 +16,7 @@ import pytest
 from askcrossroads import config
 from askcrossroads.database import (
     CONVENTION_TABLES,
+    Database,
     DatabaseError,
     NotACrossroadsBuild,
     open_database,
@@ -265,3 +266,87 @@ def test_the_command_accepts_a_valid_build(crossroads_db, tmp_path):
     result = run_console_script(crossroads_db, tmp_path)
     assert result.returncode == 0, result.stderr
     assert str(crossroads_db) in result.stdout
+
+
+# --- Provenance (spec §2D) --------------------------------------------------------
+
+
+def test_provenance_reports_what_built_the_file(crossroads_db_factory):
+    path = crossroads_db_factory(crossroads_version="1.2.3", schema_version=7)
+    with Database.open(path) as database:
+        provenance = database.context.provenance
+        assert provenance.crossroads_version == "1.2.3"
+        assert provenance.schema_version == 7
+        assert provenance.built_at_utc is not None
+
+
+def test_provenance_decodes_the_build_parameters(crossroads_db_factory):
+    path = crossroads_db_factory(
+        datasets=("stats19", "era5_weather"), years=(2021, 2022), boundary_mode="as_at"
+    )
+    with Database.open(path) as database:
+        parameters = database.context.provenance.parameters
+        assert parameters["boundary_mode"] == "as_at"
+        assert parameters["years"] == [2021, 2022]
+        assert "era5_weather" in parameters["datasets"]
+
+
+def test_provenance_is_json_safe_for_the_api(crossroads_db):
+    """The /api/database response carries this straight out (spec §9)."""
+    import json as _json
+
+    with Database.open(crossroads_db) as database:
+        payload = database.context.provenance.as_dict()
+        assert _json.dumps(payload)
+        assert isinstance(payload["built_at_utc"], str)
+
+
+def test_an_empty_provenance_table_is_refused(crossroads_db_factory):
+    """The shape is right, but nothing records what built the file."""
+    path = crossroads_db_factory(include_meta_row=False)
+    with pytest.raises(NotACrossroadsBuild) as raised:
+        Database.open(path)
+    assert "crossroads_meta" in str(raised.value)
+    assert "pip install crossroads-uk" in str(raised.value)
+
+
+# --- The Database object ----------------------------------------------------------
+
+
+def test_open_returns_a_usable_connection_and_a_context(crossroads_db):
+    with Database.open(crossroads_db) as database:
+        assert database.connection.execute("SELECT 1").fetchone() == (1,)
+        assert database.context.path == crossroads_db
+        assert len(database.context.relations) > 0
+
+
+def test_the_connection_is_still_read_only(crossroads_db):
+    """The stage 01 guarantee survives everything built on top of it."""
+    with Database.open(crossroads_db) as database:
+        with pytest.raises(duckdb.Error):
+            database.connection.execute("CREATE TABLE intruder (i INTEGER)")
+
+
+@pytest.mark.parametrize("convention", ["missing", "wrong_shape"])
+def test_a_refusal_leaves_no_file_handle_behind(crossroads_db_factory, convention):
+    """Proved by opening the same file again straight afterwards."""
+    path = crossroads_db_factory(convention=convention)
+    with pytest.raises(NotACrossroadsBuild):
+        Database.open(path)
+    connection = open_database(path)
+    connection.close()
+
+
+def test_close_releases_the_connection(crossroads_db):
+    database = Database.open(crossroads_db)
+    database.close()
+    with pytest.raises(Exception):
+        database.connection.execute("SELECT 1")
+
+
+def test_the_command_reports_provenance_for_a_valid_build(crossroads_db, tmp_path):
+    """The end-to-end success path, as a user sees it."""
+    result = run_console_script(crossroads_db, tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "Built by Crossroads-UK" in result.stdout
+    assert "codebook rows" in result.stdout
