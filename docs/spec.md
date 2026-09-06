@@ -174,7 +174,7 @@ Every control is machine-enforced. None depends on the model behaving, and none 
 |-------|-----------|-------|
 | **Read-only connection** | `duckdb.connect(path, read_only=True)` | All writes, at the engine level, regardless of what SQL reaches it. |
 | **Single-`SELECT` parse check** | DuckDB's own parser via `extract_statements()` | Multiple statements; any statement whose type is not `SELECT`. |
-| **Parse-tree function check** | `json_serialize_sql()`, walked for function names | File- and network-reading functions (`read_csv*`, `read_parquet`, `read_json*`, `glob`, and similar). |
+| **Parse-tree function check** — *specified, not implemented; see below* | `json_serialize_sql()`, walked for function names | File- and network-reading functions (`read_csv*`, `read_parquet`, `read_json*`, `glob`, and similar). **Not built:** the *No external access* layer below stops these at execution time instead. |
 | **No external access** | `config={"enable_external_access": False}` at connect | Any read or write of the filesystem or network from inside a query. |
 | **Row cap** | `fetchmany(MAX_RESULT_ROWS + 1)` on the streaming result | Multi-million-row results reaching the browser. |
 | **User cancellation** | Query runs on a worker thread; `connection.interrupt()` when the user presses Stop (§9) | A long query the user no longer wants to wait for. |
@@ -185,11 +185,30 @@ Every control is machine-enforced. None depends on the model behaving, and none 
 
 Three details matter more than the list suggests.
 
-**Validation uses DuckDB's parser, not a regular expression.** The statement check and the function check both go through the same parser that will execute the query, so there is no gap between "what the validator understood" and "what the engine will run" — the classic way SQL guards are bypassed. It also means comment-smuggling (`SELECT 1 -- ; DROP TABLE t`) is resolved correctly rather than by string matching.
+**Validation uses DuckDB's parser, not a regular expression.** The statement check goes through the same parser that will execute the query, so there is no gap between "what the validator understood" and "what the engine will run" — the classic way SQL guards are bypassed. It also means comment-smuggling (`SELECT 1 -- ; DROP TABLE t`) is resolved correctly rather than by string matching. The function check, were it built, would go through that same parser for the same reason.
+
+One qualification, since it looks like a contradiction otherwise: the statement check is preceded by a one-line first-word test on the caller's own string (`^\s*(SELECT|WITH)\b`), which is what closes the `PRAGMA` hole described immediately below. That regex decides nothing on its own — it only ever narrows what reaches the parser, and the parser runs afterwards regardless. A regex used *instead of* the parser is the anti-pattern this paragraph rejects; one used *in front of* it is not.
 
 **Statement type alone is not enough.** DuckDB rewrites `PRAGMA version` into `SELECT * FROM pragma_version()` before reporting its type, so a `PRAGMA` statement would pass a check that only looks at parsed type — and some `PRAGMA` commands can change database settings, including re-enabling the external access this layer exists to block. So the validator also checks the statement's original text and rejects anything that doesn't start with `SELECT` or `WITH`, before the parse-type check ever runs. This is a verified behaviour of the engine, not a theoretical concern, which is why §11.3 requires an explicit `PRAGMA` test case.
 
-**The layers are independent on purpose.** `enable_external_access = false` already blocks `read_csv_auto('/etc/hosts')` at execution time; the parse-tree check rejects it earlier. Either alone would do; both together mean a defect in one is not a breach. The read-only connection is the backstop for all of it, which is why §11.4 requires a test that attempts a write *as if the validator had been bypassed entirely*.
+**The layers are independent on purpose.** `enable_external_access = false` already blocks `read_csv_auto('/etc/hosts')` at execution time; the parse-tree check rejects it earlier. Either alone would do; both together mean a defect in one is not a breach. The read-only connection is the backstop for all of it, which is why §11.4 requires a test that attempts a write *as if the validator had been bypassed entirely*. That independence holds as written for every layer except the parse-tree function check, which is not built — see immediately below.
+
+### The parse-tree function check is specified but not implemented
+
+A deliberate decision, taken while planning `safety.py` and recorded here so that this document and the code agree about where they differ. The layer stays in the table above because it is the right shape for this threat and may yet be built; what follows is the honest account of the fact that it currently is not.
+
+`safety.py` implements the single-`SELECT` parse check in full. It does **not** implement the parse-tree function check. A query calling `read_csv_auto`, `read_parquet`, `glob` or similar is a well-formed single `SELECT` statement, so it passes validation and is refused only at the moment it executes, by the *No external access* layer.
+
+The reasoning is that `enable_external_access = false` stops a file- or network-reading function when it would run, regardless of whether anything checked for it beforehand. This was verified directly against the engine rather than assumed: `read_csv_auto`, `read_parquet`, `glob` and `read_text` each raise a DuckDB permission error on a connection opened with these settings. The function check would therefore be a second lock on a door the connection settings already weld shut — and it is by some distance the most complex and most engine-internals-dependent code the module would contain, for a threat model of one person running questions against their own local, read-only file.
+
+Two costs, stated plainly rather than left to be discovered:
+
+- **There is no second layer behind `enable_external_access = false` for file and network access specifically.** If that setting were ever misconfigured in `database.py`, nothing else would catch it. §11.4's read-only case and the validator's own suite both assert the setting directly, but neither is a substitute for the connection being right.
+- **A file-reading query now surfaces as an ordinary SQL execution error rather than an immediate rejection.** §4's repair loop treats it like any other execution error, so it consumes attempts and fails identically each time before the user sees it. That costs attempts and produces a less friendly message; it does not reopen the file-access hole.
+
+What is **not** affected: the single-`SELECT` parse check remains fully implemented and fully independent. It stops things the connection settings do not cover at all — `ATTACH`, which opens a *second* database file that is not read-only merely because the first connection is, and `PRAGMA`, `SET`, `INSTALL` and `LOAD`, which are how a query would reach for the settings themselves. That layer was never in question.
+
+If the function check is ever built, delete this subsection and the two markers that point at it — in the table above, and in §11.3.
 
 ---
 
@@ -427,11 +446,13 @@ Must reject:
 - `ATTACH`
 - `PRAGMA` (note the `SELECT`-rewrite in §5)
 - `COPY`
-- Any file-reading function (`read_csv_auto`, `read_parquet`, `glob`, …)
+- Any file-reading function (`read_csv_auto`, `read_parquet`, `glob`, …) — *specified, not implemented; see §5*
 - Multiple statements separated by `;`
 - A trailing statement smuggled after a valid `SELECT`
 
 Positive cases are equally required: ordinary `SELECT`s, CTEs (`WITH … SELECT`), and subqueries must **pass**. A validator that rejects everything is not safe, it is broken, and only positive cases prove the difference.
+
+**On the file-reading line item.** The parse-tree function check that would enforce it is not built (§5). The validator accepts these queries, and the connection refuses them when they run. The suite covers this as an *acceptance* paired with proof that executing the query raises — the same property tested from the other side, so that a change to either half is caught: the validator becoming stricter, or the connection settings being loosened. It is not restated as a rejection, because it is not one.
 
 ### 11.4 Everything else that must be covered
 
