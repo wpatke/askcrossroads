@@ -11,6 +11,7 @@ is broken, and only the positive cases prove the difference.
 import duckdb
 import pytest
 
+from askcrossroads.database import open_database
 from askcrossroads.safety import Verdict, validate_sql
 
 
@@ -118,6 +119,28 @@ def test_a_leading_comment_is_rejected_on_purpose():
     assert verdict.reason == "not_a_read"
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "/* collisions by year */ SELECT 1",
+        "/* multi\n   line */\nSELECT 1",
+    ],
+    ids=["on one line", "spanning lines"],
+)
+def test_a_leading_block_comment_is_rejected_on_purpose(query):
+    """The /* */ counterpart of the case above, rejected for exactly the same reason.
+
+    Gate 1 reads the caller's ORIGINAL text and skips only whitespace, so any comment
+    before the first keyword hides that keyword from it -- whether the comment is a --
+    line or a /* block, and whether or not it spans lines. The model is asked for bare
+    SQL, so this shape should not arrive; if it ever does, failing closed is the right
+    side of the line for a boundary.
+    """
+    verdict = validate_sql(query)
+    assert verdict.allowed is False, f"a leading block comment must not pass: {query!r}"
+    assert verdict.reason == "not_a_read"
+
+
 def test_leading_whitespace_is_fine():
     assert validate_sql("\n   SELECT 1").allowed is True
 
@@ -154,6 +177,28 @@ def test_comment_smuggling_is_resolved_by_the_parser_not_by_string_matching():
     is the sort of false rejection that makes a boundary get relaxed later.
     """
     assert validate_sql("SELECT 1 -- ; DROP TABLE collisions").allowed is True
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT /* inline note */ 1",
+        "SELECT 1 /* ; DROP TABLE collisions */",
+        "WITH /* note */ a AS (SELECT 1 AS n) SELECT n FROM a",
+    ],
+    ids=["inline", "hiding a semicolon and a DROP", "inside a CTE"],
+)
+def test_a_block_comment_after_the_first_keyword_is_fine(query):
+    """The /* */ counterpart of the smuggling case above.
+
+    Once gate 1 has seen SELECT or WITH, comments are the parser's business rather than
+    ours. DuckDB reads the second case as one harmless statement, because the semicolon
+    and the DROP are inside the comment -- a validator that searched the raw text for ";"
+    or "DROP" would reject it wrongly, which is the sort of false rejection that gets a
+    boundary relaxed later.
+    """
+    verdict = validate_sql(query)
+    assert verdict.allowed is True, f"wrongly rejected ({verdict.reason}): {verdict.detail}"
 
 
 # --- Structural rejections: never a traceback --------------------------------------
@@ -211,3 +256,216 @@ def test_no_duckdb_error_ever_escapes(value):
 def test_an_ordinary_read_is_allowed(query):
     verdict = validate_sql(query)
     assert verdict.allowed is True, f"wrongly rejected ({verdict.reason}): {verdict.detail}"
+
+
+# =====================================================================================
+# The spec §11.3 matrix
+# =====================================================================================
+# One case per rejection the specification names AND this module implements, written in
+# the specification's own order, so the suite can be read against §11.3 line by line.
+# This deliberately overlaps the check-by-check tests above: those prove the mechanism,
+# this proves the contract.
+#
+# Spec §11.3 also names "any file-reading function" as a required rejection. That check
+# is deliberately not built here (see docs/plans/003_safety_validator/00-overview.md), so
+# it is not restated as a rejection below. It reappears further down this file as an
+# ACCEPTANCE, paired with proof that the database connection refuses it anyway.
+
+
+SPEC_11_3_REJECTIONS = [
+    ("DROP", "DROP TABLE collisions"),
+    ("DELETE", "DELETE FROM collisions"),
+    ("UPDATE", "UPDATE collisions SET speed_limit = 0"),
+    ("INSERT", "INSERT INTO collisions (source_row_key) VALUES ('x')"),
+    ("CREATE", "CREATE TABLE intruder (i INTEGER)"),
+    ("ATTACH", "ATTACH 'elsewhere.db' AS elsewhere"),
+    ("PRAGMA", "PRAGMA version"),
+    ("COPY", "COPY collisions TO 'out.csv'"),
+    ("multiple statements", "SELECT 1; SELECT 2"),
+    ("statement smuggled after a SELECT", "SELECT 1; DROP TABLE collisions"),
+]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [query for _, query in SPEC_11_3_REJECTIONS],
+    ids=[name for name, _ in SPEC_11_3_REJECTIONS],
+)
+def test_spec_11_3_rejection(query):
+    """Every rejection spec §11.3 requires that this module implements, each its own case."""
+    verdict = validate_sql(query)
+    assert verdict.allowed is False, f"spec §11.3 requires this to be rejected: {query}"
+    assert verdict.reason, "a rejection must say why"
+    assert verdict.detail, "a rejection must carry a sentence for the user"
+
+
+SPEC_11_3_ACCEPTIONS = [
+    ("ordinary SELECT", "SELECT collision_severity FROM collisions"),
+    ("SELECT with aggregate and ORDER BY",
+     "SELECT collision_severity, COUNT(*) AS n FROM collisions "
+     "GROUP BY collision_severity ORDER BY collision_severity"),
+    ("CTE",
+     "WITH counted AS (SELECT COUNT(*) AS n FROM collisions) SELECT n FROM counted"),
+    ("nested CTE",
+     "WITH a AS (SELECT * FROM collisions), b AS (SELECT * FROM a) SELECT COUNT(*) FROM b"),
+    ("subquery in WHERE",
+     "SELECT * FROM collisions WHERE accident_index IN "
+     "(SELECT accident_index FROM vehicles)"),
+    ("scalar subquery in the select list",
+     "SELECT (SELECT COUNT(*) FROM vehicles) AS vehicles FROM collisions"),
+    ("derived table", "SELECT n FROM (SELECT COUNT(*) AS n FROM collisions) t"),
+    ("join",
+     "SELECT c.source_row_key FROM collisions c "
+     "JOIN vehicles v ON c.accident_index = v.accident_index"),
+    ("union", "SELECT 1 AS n UNION ALL SELECT 2 AS n"),
+]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [query for _, query in SPEC_11_3_ACCEPTIONS],
+    ids=[name for name, _ in SPEC_11_3_ACCEPTIONS],
+)
+def test_spec_11_3_acception(query):
+    """The half that proves the validator is safe rather than merely broken.
+
+    Spec §11.3: "A validator that rejects everything is not safe, it is broken, and only
+    positive cases prove the difference."
+    """
+    verdict = validate_sql(query)
+    assert verdict.allowed is True, (
+        f"spec §11.3 requires this to pass, but it was rejected "
+        f"({verdict.reason}): {verdict.detail}"
+    )
+
+
+# =====================================================================================
+# The validator and the engine agree
+# =====================================================================================
+# Everything above asks the validator what it thinks. These tests check that against the
+# database itself, so a verdict is never merely internally consistent.
+
+
+@pytest.fixture
+def con(crossroads_db):
+    """A read-only connection to a valid synthetic build, opened exactly as the
+    application opens the user's file: read_only=True, external access off."""
+    connection = open_database(crossroads_db)
+    yield connection
+    connection.close()
+
+
+@pytest.mark.parametrize(
+    "query",
+    [query for _, query in SPEC_11_3_ACCEPTIONS],
+    ids=[name for name, _ in SPEC_11_3_ACCEPTIONS],
+)
+def test_an_accepted_query_actually_runs(con, query):
+    """Accepting a query the database cannot run would make the positive cases hollow.
+
+    Note what this does NOT do: it does not assert anything about the rows. The database
+    is a fixture, not a subject. All that matters here is that the validator's "yes"
+    corresponds to something the engine will accept.
+    """
+    assert validate_sql(query).allowed is True
+    con.execute(query).fetchall()
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "DROP TABLE collisions",
+        "DELETE FROM collisions",
+        "UPDATE collisions SET speed_limit = 0",
+        "INSERT INTO collisions (source_row_key) VALUES ('x')",
+        "CREATE TABLE intruder (i INTEGER)",
+    ],
+)
+def test_the_engine_also_refuses_every_write_the_validator_rejects(con, statement):
+    """Spec §11.4 requires a write to fail as if the validator had been bypassed entirely.
+
+    tests/test_database.py already proves the engine refuses these. This restates it from
+    the validator's side, so the two guarantees are visibly the same guarantee rather than
+    two facts that happen to both be true today.
+    """
+    assert validate_sql(statement).allowed is False
+    with pytest.raises(duckdb.Error):
+        con.execute(statement)
+
+
+# =====================================================================================
+# The decision this validator rests on: file-reading functions pass HERE, and are
+# refused by the CONNECTION instead (see docs/plans/003_safety_validator/00-overview.md)
+# =====================================================================================
+# safety.py deliberately does not check for read_csv_auto, glob, and similar. The
+# database connection this application opens (database.py, from 002_database_layer) is
+# created with enable_external_access=False, which refuses these at the moment they would
+# run. Both halves of that claim are asserted together below, so a change to EITHER side
+# -- this validator becoming stricter, or the connection settings being loosened -- is
+# caught by this same test rather than by two unrelated ones drifting apart.
+#
+# Verified directly, not assumed: each of the four calls below was run against a real
+# connection with these settings and raised duckdb.PermissionException with the message
+# "file system operations are disabled by configuration".
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT * FROM read_csv_auto('/etc/hosts')",
+        "SELECT * FROM read_parquet('somewhere.parquet')",
+        "SELECT * FROM glob('/*')",
+        "SELECT * FROM read_text('/etc/hosts')",
+    ],
+)
+def test_file_reading_queries_pass_validation_but_the_connection_refuses_them(con, query):
+    """The explicit proof behind the decision not to build a parse-tree function check.
+
+    If this test's first assertion ever starts failing, someone has added a function
+    check to safety.py -- that is fine, but the overview and this stage's docstring
+    should be updated to say so rather than left describing a decision that no longer
+    holds.
+
+    If the SECOND assertion ever starts failing -- the connection allows the read -- that
+    is a serious finding. It means the one layer this design relies on for file- and
+    network-reading functions has gone silent, and nothing else in this module would
+    catch it. Report it prominently; do not add a function check as a quiet workaround
+    without saying why the decision changed.
+    """
+    verdict = validate_sql(query)
+    assert verdict.allowed is True, (
+        "this validator does not check for file-reading functions by design (see "
+        "00-overview.md) -- if it now rejects this, the design note is out of date"
+    )
+    with pytest.raises(duckdb.Error):
+        con.execute(query)
+
+
+# =====================================================================================
+# A guard on the engine behaviour this module depends on
+# =====================================================================================
+# safety.py's check 1 exists, and runs first, only because of this fact about DuckDB. It
+# is not documented as a stable contract, and a DuckDB upgrade could change it without
+# anything else in this project noticing.
+#
+# A failure here is not necessarily a defect in safety.py -- check 1 would still correctly
+# reject PRAGMA by its text either way. It means the reasoning recorded in safety.py's
+# module comment has gone stale and needs rewriting.
+
+
+def test_duckdb_still_rewrites_pragma_into_a_select():
+    """Check 1 exists, and runs first, only because of this.
+
+    If DuckDB ever stops rewriting PRAGMA, check 1 is no longer load-bearing for this
+    particular case -- but it stays regardless, because it is also what rejects SET,
+    INSTALL, LOAD, EXPORT, DESCRIBE and CALL.
+    """
+    statement = duckdb.extract_statements("PRAGMA version")[0]
+    assert statement.type == duckdb.StatementType.SELECT, (
+        "DuckDB no longer reports PRAGMA as a SELECT -- the rationale in safety.py's "
+        "module comment needs revisiting"
+    )
+    assert statement.query.lstrip().upper().startswith("SELECT"), (
+        "DuckDB no longer stores the rewritten text on the statement -- check 1 could "
+        "now read statement.query safely, though there is no reason to change it"
+    )
