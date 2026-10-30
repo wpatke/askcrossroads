@@ -18,6 +18,7 @@ MODEL = "claude-opus-5"    # the only supported model in v1 (spec §9)
 MAX_TOKENS = 16_000        # required by the API; caps thinking + response together
 MAX_ATTEMPTS = 3           # per model call: initial attempt + at most 2 repairs (spec §4)
 MAX_RESULT_ROWS = 5_000    # result rows returned to the browser (spec §5)
+CHART_SAMPLE_ROWS = 5      # example rows sent with the chart call (spec §7)
 
 # --- Where the application listens ------------------------------------------------
 # Localhost only. This is a local, single-user tool, not a server (spec §5, §9).

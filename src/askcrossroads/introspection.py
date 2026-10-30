@@ -2,7 +2,7 @@
 
 Nothing in here knows a table name, a column name, a dataset name, or a code value.
 Everything is read from whatever file the user supplied, which is what lets a build with
-weather data and a build without it both work with no code change (spec §2C).
+an optional dataset and a build without it both work with no code change (spec §2C).
 
 This module never imports database.py. The dependency runs one way only.
 """
@@ -83,7 +83,7 @@ class CodebookEntry:
 class ManifestEntry:
     """One column's classification (spec §2B).
 
-    `tbl` is the singular SOURCE name ('collision'), not the table name ('collisions').
+    `tbl` is the singular SOURCE name, not the plural name of the table built from it.
     Do not join it to a relation name — it will match nothing.
     """
 

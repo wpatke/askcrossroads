@@ -37,6 +37,7 @@ def test_bounds_have_their_specified_values():
     assert config.MAX_TOKENS == 16_000
     assert config.MAX_ATTEMPTS == 3
     assert config.MAX_RESULT_ROWS == 5_000
+    assert config.CHART_SAMPLE_ROWS == 5
 
 
 def test_bind_target_is_localhost_only():

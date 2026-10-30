@@ -199,7 +199,8 @@ def _labelled_view_sql(table, coded_columns):
 
 def _write_convention_tables(con, *, convention, datasets, years, boundary_mode,
                              crossroads_version, schema_version, built_at_utc,
-                             extra_meta_column=False, include_meta_row=True):
+                             extra_meta_column=False, include_meta_row=True,
+                             codebook_rows=CODEBOOK_ROWS, manifest_rows=MANIFEST_ROWS):
     """Write codebook, column_manifest and crossroads_meta in the requested state."""
     if convention == "missing":
         # A perfectly valid DuckDB file that is simply not a Crossroads-UK build.
@@ -217,12 +218,12 @@ def _write_convention_tables(con, *, convention, datasets, years, boundary_mode,
         "CREATE TABLE codebook ("
         "variable VARCHAR, code VARCHAR, label VARCHAR, is_missing BOOLEAN)"
     )
-    con.executemany("INSERT INTO codebook VALUES (?, ?, ?, ?)", CODEBOOK_ROWS)
+    con.executemany("INSERT INTO codebook VALUES (?, ?, ?, ?)", codebook_rows)
 
     con.execute(
         "CREATE TABLE column_manifest (tbl VARCHAR, col VARCHAR, kind VARCHAR, dtype VARCHAR)"
     )
-    con.executemany("INSERT INTO column_manifest VALUES (?, ?, ?, ?)", MANIFEST_ROWS)
+    con.executemany("INSERT INTO column_manifest VALUES (?, ?, ?, ?)", manifest_rows)
 
     # `extra_meta_column` simulates a future Crossroads-UK release that adds a column.
     # A subset check must still accept the build; an exact-set check would refuse it.
@@ -432,6 +433,73 @@ def build_crossroads_db(
     return path
 
 
+# A build that is entirely valid and looks nothing like a real one. Spec §2C's test is "if
+# Crossroads-UK added a dataset tomorrow, could AskCrossroads answer questions about it with
+# no code change?" — this fixture is how that question gets asked of the prompt. Nothing here
+# shares a single name with the standard fixture, so a prompt built from it that mentions
+# `collisions` could only have got the name from hardcoded source.
+
+UNCONVENTIONAL_CODEBOOK_ROWS = [
+    ("grade", "-1", "Data missing or out of range", True),
+    ("grade", "1", "Top", False),
+    ("grade", "2", "Middle", False),
+    ("grade", "3", "Bottom", False),
+]
+
+UNCONVENTIONAL_MANIFEST_ROWS = [
+    ("widget", "widget_id", "identity", None),
+    ("widget", "observed_on", "datetime", None),
+    ("widget", "grade", "coded", "INTEGER"),
+    ("widget", "mass_kg", "numeric", "DOUBLE"),
+]
+
+
+def build_unconventional_db(path):
+    """A valid Crossroads-UK build whose tables are named nothing like a real one.
+
+    The three convention tables are present and correctly shaped — spec §2C permits exactly
+    those names to be assumed, and a file without them would be refused before a prompt was
+    ever built. Everything else is deliberately unfamiliar.
+    """
+    con = duckdb.connect(str(path))
+    try:
+        _write_convention_tables(
+            con,
+            convention="full",
+            datasets=(STATS19,),
+            years=(2023,),
+            boundary_mode="snapshot",
+            crossroads_version="0.9.0",
+            schema_version=4,
+            built_at_utc=DEFAULT_BUILT_AT,
+            codebook_rows=UNCONVENTIONAL_CODEBOOK_ROWS,
+            manifest_rows=UNCONVENTIONAL_MANIFEST_ROWS,
+        )
+        con.execute(
+            "CREATE TABLE widgets ("
+            "widget_id VARCHAR, observed_on DATE, grade INTEGER, mass_kg DOUBLE)"
+        )
+        con.executemany(
+            "INSERT INTO widgets VALUES (?, ?, ?, ?)",
+            [
+                ("w1", date(2023, 3, 1), 1, 4.5),
+                ("w2", date(2023, 7, 14), 2, 9.25),
+                ("w3", date(2023, 11, 2), 3, 1.0),
+            ],
+        )
+        con.execute(
+            "CREATE TABLE gadget_log ("
+            "gadget_id VARCHAR, noted_at TIMESTAMP, note VARCHAR)"
+        )
+        con.execute(
+            "CREATE VIEW widget_summary AS "
+            "SELECT grade, COUNT(*) AS n FROM widgets GROUP BY grade"
+        )
+    finally:
+        con.close()
+    return path
+
+
 @pytest.fixture
 def crossroads_db_factory(tmp_path):
     """Build synthetic Crossroads-UK databases on demand, one file per call.
@@ -457,6 +525,12 @@ def crossroads_db(crossroads_db_factory):
 
 
 @pytest.fixture
+def unconventional_db(tmp_path):
+    """A valid build with no familiar names in it at all."""
+    return build_unconventional_db(tmp_path / "unconventional.db")
+
+
+@pytest.fixture
 def manifest_kinds():
     """The classifications column_manifest uses.
 
@@ -466,3 +540,51 @@ def manifest_kinds():
     are available to every test beneath tests/.
     """
     return MANIFEST_KINDS
+
+
+# --- A scripted stand-in for the model ---------------------------------------------
+
+
+class FakeModel:
+    """A scripted stand-in for a real model client (spec §11.1).
+
+    The default suite must be offline and deterministic, and the repair loops in a later plan
+    can only be tested against replies chosen in advance. This satisfies llm.ModelClient and
+    returns whatever was queued, in order.
+
+    Queue an Exception instead of a response and it is raised — which is how a test exercises
+    a malformed reply or a provider failure without a network.
+
+    `calls` records every call in order, so a test can assert that the chart call was never
+    made before the SQL succeeded (spec §11.4).
+    """
+
+    def __init__(self, sql_responses=(), chart_responses=()):
+        self.sql_responses = list(sql_responses)
+        self.chart_responses = list(chart_responses)
+        self.calls = []
+
+    def generate_sql(self, context, question):
+        self.calls.append(("generate_sql", question))
+        return self._next(self.sql_responses, "generate_sql")
+
+    def describe_chart(self, question, sql, shape):
+        self.calls.append(("describe_chart", question, sql, shape))
+        return self._next(self.chart_responses, "describe_chart")
+
+    @staticmethod
+    def _next(queue, name):
+        if not queue:
+            raise AssertionError(
+                f"{name} was called more times than this test queued replies for"
+            )
+        item = queue.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+
+@pytest.fixture
+def fake_model():
+    """A FakeModel factory: fake_model(sql_responses=[...], chart_responses=[...])."""
+    return FakeModel

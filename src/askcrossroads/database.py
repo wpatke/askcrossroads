@@ -273,8 +273,9 @@ class DatabaseContext:
     def relation(self, name):
         """The relation with this name, or None if the build does not have one.
 
-        This is how a weatherless build is handled: there is no weather relation, so this
-        returns None and nothing offers one to the prompt (spec §6).
+        This is how a build without an optional dataset is handled: there is no relation
+        for that dataset, so this returns None and nothing offers one to the prompt
+        (spec §6).
         """
         for relation in self.relations:
             if relation.name == name:
@@ -289,8 +290,8 @@ class DatabaseContext:
         carried through verbatim, including one this project has never seen: structure
         comes from information_schema, so an unfamiliar classification loses no column.
 
-        Remember ManifestEntry.tbl is the singular SOURCE name ('collision'), not a table
-        name ('collisions'). Do not join it to a relation name.
+        Remember ManifestEntry.tbl is the singular SOURCE name, not the plural name of the
+        table built from it. Do not join it to a relation name.
         """
         return tuple(e for e in self.column_manifest if e.kind == "coded")
 
