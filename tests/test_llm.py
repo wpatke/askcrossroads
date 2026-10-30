@@ -267,6 +267,43 @@ def test_describe_chart_returns_the_parsed_spec():
     assert client.describe_chart(QUESTION, "SELECT 1", _shape()) == CHART
 
 
+# --- Repair attempts carry their failures (spec §4) --------------------------------------
+
+FAILURES = (("SELECT nope FROM nowhere", "Catalog Error: Table nowhere does not exist"),)
+
+
+def test_a_repair_keeps_the_cached_system_blocks(context):
+    """Spec §3: the prefix is byte-stable. A repair attempt must hit the same cache entry."""
+    client = _client(response=_answer())
+    client.generate_sql(context, QUESTION)
+    client.generate_sql(context, QUESTION, FAILURES)
+    first, second = client._client.recorded
+    assert first["system"] == second["system"] == prompt.sql_system_blocks(context)
+
+
+def test_a_repair_feeds_the_failure_back_in_the_user_message(context):
+    """Spec §4: the error text is fed back to the model."""
+    client = _client(response=_answer())
+    client.generate_sql(context, QUESTION, FAILURES)
+    sent = client._client.recorded[0]
+    content = sent["messages"][0]["content"]
+    assert content == prompt.sql_user_message(QUESTION, FAILURES)
+    assert "SELECT nope FROM nowhere" in content
+    assert "Table nowhere does not exist" in content
+    assert "Table nowhere does not exist" not in json.dumps(sent["system"])
+
+
+def test_a_chart_repair_feeds_the_failure_back():
+    client = _client(response=_Response([_Block("text", json.dumps(CHART))]))
+    failures = ((None, "The chart specification had no mark."),)
+    client.describe_chart(QUESTION, "SELECT 1", _shape(), failures)
+    sent = client._client.recorded[0]
+    assert sent["system"] == prompt.CHART_SYSTEM_PROMPT
+    assert sent["messages"][0]["content"] == prompt.chart_user_message(
+        QUESTION, "SELECT 1", _shape(), failures
+    )
+
+
 def test_a_refusal_is_a_model_error(context):
     """A policy decline must not consume a repair attempt, so it is not MalformedResponse."""
     client = _client(response=_Response([], stop_reason="refusal"))
@@ -368,8 +405,8 @@ def test_fake_model_records_its_calls():
     model.generate_sql(None, QUESTION)
     model.describe_chart(QUESTION, "SELECT 1", shape)
     assert model.calls == [
-        ("generate_sql", QUESTION),
-        ("describe_chart", QUESTION, "SELECT 1", shape),
+        ("generate_sql", QUESTION, ()),
+        ("describe_chart", QUESTION, "SELECT 1", shape, ()),
     ]
 
 

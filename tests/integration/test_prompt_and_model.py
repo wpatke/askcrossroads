@@ -16,64 +16,19 @@ Every assertion is on shape and execution, never on generated wording: the model
 deterministic (spec §8).
 """
 
-import os
-from pathlib import Path
-
 import pytest
 
 from askcrossroads import config, llm, prompt
-from askcrossroads.database import Database, DatabaseError
 from askcrossroads.safety import validate_sql
+
+from live_fixtures import client, database, settings  # noqa: F401  (pytest fixtures)
 
 # Everything in this module needs a real build and a real key.
 pytestmark = pytest.mark.integration
 
-ENV_TEST_DB = "ASKCROSSROADS_TEST_DB"
-
 # Answerable by any valid build, and phrased so the test needs to know nothing about the
 # schema (spec §2C binds tests too).
 ANY_BUILD_QUESTION = "How many records does this database hold in total?"
-
-
-@pytest.fixture(scope="module")
-def settings():
-    """The API key, from the environment or .env, paired with the test build — or a skip.
-
-    Read through config.load_config so the key is handled exactly as the application
-    handles it: never printed, never written anywhere.
-    """
-    raw = (os.environ.get(ENV_TEST_DB) or "").strip()
-    if not raw:
-        pytest.skip(f"{ENV_TEST_DB} is not set; no real build to test against")
-    path = Path(raw).expanduser()
-    if not path.is_file():
-        pytest.skip(f"{ENV_TEST_DB} is {path}, which is not a file")
-    try:
-        return config.load_config(
-            environ={**os.environ, config.ENV_DATABASE: str(path)}
-        )
-    except config.ConfigError:
-        # The path was checked above, so the key is what is missing. The ConfigError's own
-        # message is deliberately not relayed: a skip reason is no place to risk echoing
-        # anything key-shaped.
-        pytest.skip(f"{config.ENV_API_KEY} is not set in the environment or .env")
-
-
-@pytest.fixture(scope="module")
-def database(settings):
-    try:
-        db = Database.open(settings.database_path)
-    except DatabaseError:
-        pytest.skip(f"{ENV_TEST_DB} is not a readable Crossroads-UK build")
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-@pytest.fixture(scope="module")
-def client(settings):
-    return llm.AnthropicClient.from_config(settings)
 
 
 def test_a_real_question_produces_executable_sql(client, database):
@@ -152,7 +107,7 @@ def test_the_second_call_registers_a_cache_read(client, database):
 
 
 def test_the_prefix_is_the_expected_size(client, database, capsys):
-    """The ~23k-token estimate from spec §3 becomes a measured number.
+    """The prefix size recorded in spec §3, measured on whichever build is configured.
 
     Only a loose sanity range is asserted — a tight one would fail on a legitimately
     different build. The figure itself is printed for the person running the suite.

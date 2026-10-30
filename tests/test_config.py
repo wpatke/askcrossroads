@@ -38,6 +38,8 @@ def test_bounds_have_their_specified_values():
     assert config.MAX_ATTEMPTS == 3
     assert config.MAX_RESULT_ROWS == 5_000
     assert config.CHART_SAMPLE_ROWS == 5
+    assert config.STOP_RETRY_SECONDS == 5
+    assert config.STOP_RETRY_INTERVAL == 0.02
 
 
 def test_bind_target_is_localhost_only():

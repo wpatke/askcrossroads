@@ -87,7 +87,7 @@ The rule binds every change, and applies to source, tests, prompt text, and the 
 
 A relevance filter — scoring the question's words against column names and label text — sounds like an obvious optimization, but it fails silently on exactly the questions worth asking. "How many collisions involved drunk drivers?" matches no column name and no label text, so the model would get no codes for the column it needs, guess, and return wrong rows instead of an error.
 
-There are not many tokens to save. Measured on a real national build the whole payload is about 23,000 tokens — 1,130 codebook rows, 734 schema columns, 99 manifest rows — roughly 2% of the context window.
+There are not many tokens to save. Measured on a real national build (Crossroads-UK 0.9.0, schema 4: 18 tables, 8 views, 1,130 codebook rows, 59 coded columns), the whole cached prefix — schema, date ranges, manifest, codebook, build parameters and the instructions that follow them — is 38,812 tokens: still a small fraction of the context window. An earlier estimate of about 23,000 tokens was taken from a different build, before the prompt's layout was settled, and was too low. The integration suite prints the current figure on every run, so a change to the prompt that grows it is visible.
 
 Injecting the codebook whole also carries `is_missing`, which matters: Crossroads-UK replaces those codes with `NULL` when it builds the silver tables, so a model that does not know `weather_conditions = 9` was removed will write a filter on it and get nothing back.
 
@@ -399,7 +399,7 @@ The reason is specific to what this tool does: **it executes queries the user di
 
 ### 11.2 The integration suite
 
-Mocking proves the machinery around the model is correct. It cannot prove the thing actually works — that a real Anthropic call, with the real prompt and the real 23k-token prefix, returns SQL that a real Crossroads-UK build will execute. A tool assembled entirely from passing mocks can be broken end to end, and only a real call finds it.
+Mocking proves the machinery around the model is correct. It cannot prove the thing actually works — that a real Anthropic call, with the real prompt and the real prefix of nearly 40,000 tokens, returns SQL that a real Crossroads-UK build will execute. A tool assembled entirely from passing mocks can be broken end to end, and only a real call finds it.
 
 So a second, marked suite makes real API calls:
 

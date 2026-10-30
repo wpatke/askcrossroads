@@ -298,6 +298,8 @@ which is why the marked suite exists.
   The DDL-plus-delimited-rows format chosen here is not the format that was measured. Stage 03's
   integration suite reports the real number; if it is materially larger, the caching decision
   becomes *more* load-bearing, not less, but the cost figures in the spec would need revisiting.
+  **Resolved:** the integration suite measured 38,812 tokens on a Crossroads-UK 0.9.0, schema 4
+  build. Spec §3 now records that figure in place of the estimate.
 - **Prompt quality cannot be tested offline.** Everything the default suite proves is that the
   prompt is *stable* and *complete*. Whether it produces good SQL is a property of the wording, and
   the only instrument for it is the answer set in a later plan. Expect the prompt text written here

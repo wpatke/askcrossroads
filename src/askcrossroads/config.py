@@ -19,6 +19,8 @@ MAX_TOKENS = 16_000        # required by the API; caps thinking + response toget
 MAX_ATTEMPTS = 3           # per model call: initial attempt + at most 2 repairs (spec §4)
 MAX_RESULT_ROWS = 5_000    # result rows returned to the browser (spec §5)
 CHART_SAMPLE_ROWS = 5      # example rows sent with the chart call (spec §7)
+STOP_RETRY_SECONDS = 5     # how long Stop keeps interrupting a query that has not yet stopped
+STOP_RETRY_INTERVAL = 0.02 # seconds between those interrupts
 
 # --- Where the application listens ------------------------------------------------
 # Localhost only. This is a local, single-user tool, not a server (spec §5, §9).

@@ -159,7 +159,7 @@ def serialise_context(context):
     saving and fails silently on exactly the questions worth asking: a question about drunk
     drivers matches no column name and no label text, so the model would get no codes for
     the column it needs, guess, and return wrong rows instead of an error. The whole payload
-    is roughly 2% of the context window.
+    is a small fraction of the context window (spec §3 records the measured size).
 
     THE OUTPUT MUST BE BYTE-STABLE. For a given database this returns exactly the same
     characters every time, which is what makes the prompt cache work. Three rules keep it
@@ -294,7 +294,9 @@ of distinct values, do not put it on an axis that will be unreadable — pick th
 that stays legible, or chart a different pair of columns.
 
 The rows arrive in the order the SQL sorted them, and that is the order they should be
-drawn in. Preserve it. Do not add a sort that re-orders them alphabetically.
+drawn in. Preserve it. Vega-Lite sorts the values of a nominal or ordinal field
+alphabetically unless told otherwise, so set "sort": null on every encoding channel that
+uses one. That keeps the order the rows arrived in.
 """
 
 
@@ -321,12 +323,15 @@ class ResultShape:
     sample_rows: tuple
 
 
-def chart_user_message(question, sql, shape):
+def chart_user_message(question, sql, shape, failures=()):
     """The user message for the chart call (spec §7).
 
     The chart call is made only AFTER the SQL has run and returned at least one row, which
     is what makes it easy to get right: the columns being described demonstrably exist,
     because they came back from the database.
+
+    `failures` carries earlier chart attempts that were unusable (spec §7: a malformed spec
+    is repaired through the same loop).
 
     Returns one string.
     """
@@ -344,7 +349,7 @@ def chart_user_message(question, sql, shape):
         for row in shape.sample_rows[: config.CHART_SAMPLE_ROWS]
     ]
 
-    return "\n\n".join([
+    sections = [
         "## Question\n" + question,
         "## SQL that produced the result\n" + sql,
         "## Result columns\n" + "\n".join(column_lines),
@@ -353,4 +358,45 @@ def chart_user_message(question, sql, shape):
         "## Sample rows\n"
         "These rows are already in the order the SQL sorted them, which is the order to "
         "draw them in.\n" + "\n".join(sample_lines),
-    ]) + "\n"
+    ]
+    if failures:
+        sections.append(_failures_section(failures))
+    return "\n\n".join(sections) + "\n"
+
+
+# --- Repair attempts (spec §4) ---------------------------------------------------------
+
+
+def _failures_section(failures):
+    """Earlier failed attempts at this question, for the model to correct (spec §4).
+
+    Placed in the user message, never the system blocks: the system blocks are the cached
+    prefix and must stay byte-identical for a given database (spec §3). Earlier attempts are
+    volatile, so they belong after the cache breakpoint, like the question itself.
+
+    `failures` is a tuple of (attempted, error) pairs, oldest first. `attempted` is None when
+    there is nothing to show, for example when the reply could not be read at all.
+
+    The attempted SQL and the error are shown verbatim and NOT pipe-escaped. They are not
+    rows of a delimited table, and the model needs to see the exact text that failed.
+    """
+    parts = [
+        "## Earlier attempts that failed\n"
+        "Each attempt below was tried and did not work. Correct the problem; do not repeat "
+        "a failed attempt."
+    ]
+    for number, (attempted, error) in enumerate(failures, start=1):
+        tried = attempted if attempted else "(no usable reply)"
+        parts.append(f"### Attempt {number}\nTried:\n{tried}\n\nError:\n{error}")
+    return "\n\n".join(parts)
+
+
+def sql_user_message(question, failures=()):
+    """The user message for the SQL call.
+
+    With no failures this is the question and nothing else, exactly as before, so a first
+    attempt sends precisely what it always did.
+    """
+    if not failures:
+        return question
+    return "## Question\n" + question + "\n\n" + _failures_section(failures) + "\n"

@@ -226,11 +226,15 @@ class ModelClient(Protocol):
     reaching for a module function, so an offline test hands over a scripted stand-in and can
     assert on what was asked, in what order, and how many times. Spec §11.4 requires exactly
     those assertions of the repair loops.
+
+    `failures` is a tuple of (attempted, error) pairs, earlier failed attempts at this same
+    question, oldest first. It is empty on a first attempt. Spec §4 requires the error to be
+    fed back so the model can correct it.
     """
 
-    def generate_sql(self, context, question) -> SqlResponse: ...
+    def generate_sql(self, context, question, failures=()) -> SqlResponse: ...
 
-    def describe_chart(self, question, sql, shape) -> dict: ...
+    def describe_chart(self, question, sql, shape, failures=()) -> dict: ...
 
 
 class AnthropicClient:
@@ -249,22 +253,25 @@ class AnthropicClient:
         """Build a client from the loaded Config."""
         return cls(settings.api_key)
 
-    def generate_sql(self, context, question):
+    def generate_sql(self, context, question, failures=()):
         """Ask for SQL, or for a reason this build cannot answer (spec §6).
 
-        The system blocks carry the cacheable prefix; the question is the only volatile
-        content and goes in `messages`, after the cache breakpoint.
+        The system blocks carry the cacheable prefix; the question, and any earlier failed
+        attempts, are the only volatile content and go in `messages`, after the cache
+        breakpoint.
         """
         response = self._send(
             system=prompt.sql_system_blocks(context),
-            messages=[{"role": "user", "content": question}],
+            messages=[
+                {"role": "user", "content": prompt.sql_user_message(question, failures)}
+            ],
             output_config={
                 "format": {"type": "json_schema", "schema": SQL_RESPONSE_SCHEMA}
             },
         )
         return parse_sql_response(_text(response))
 
-    def describe_chart(self, question, sql, shape):
+    def describe_chart(self, question, sql, shape, failures=()):
         """Ask for a Vega-Lite specification containing no data (spec §7).
 
         No output schema: a strict schema cannot describe an arbitrary Vega-Lite document.
@@ -274,7 +281,7 @@ class AnthropicClient:
             messages=[
                 {
                     "role": "user",
-                    "content": prompt.chart_user_message(question, sql, shape),
+                    "content": prompt.chart_user_message(question, sql, shape, failures),
                 }
             ],
         )

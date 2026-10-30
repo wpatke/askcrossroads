@@ -338,6 +338,9 @@ def test_chart_prompt_requires_mark_and_encoding():
 
 def test_chart_prompt_preserves_row_order():
     assert "Preserve it" in _flat(prompt.CHART_SYSTEM_PROMPT)
+    # Vega-Lite sorts categories alphabetically by default, so asking the model not to ADD a
+    # sort is not enough: it must switch the default off.
+    assert '"sort": null' in _flat(prompt.CHART_SYSTEM_PROMPT)
 
 
 # --- The chart call's user message (spec §7) --------------------------------------------
@@ -409,3 +412,46 @@ def test_chart_message_is_deterministic():
     assert prompt.chart_user_message(QUESTION, SQL, _shape()) == prompt.chart_user_message(
         QUESTION, SQL, _shape()
     )
+
+
+# --- Earlier failed attempts (spec §4) --------------------------------------------------
+
+
+def test_sql_message_without_failures_is_just_the_question():
+    assert prompt.sql_user_message("q") == "q"
+    assert prompt.sql_user_message("q", ()) == "q"
+
+
+def test_sql_message_carries_each_failure_in_order():
+    failures = (("SELECT a", "err one"), (None, "err two"))
+    message = prompt.sql_user_message(QUESTION, failures)
+    for expected in (QUESTION, "SELECT a", "err one", "(no usable reply)", "err two"):
+        assert expected in message
+    assert message.index("Attempt 1") < message.index("Attempt 2")
+
+
+def test_failed_sql_is_not_pipe_escaped():
+    message = prompt.sql_user_message(QUESTION, (("SELECT 'a|b'", "e"),))
+    assert "SELECT 'a|b'" in message
+
+
+def test_chart_message_without_failures_is_unchanged():
+    without = prompt.chart_user_message(QUESTION, SQL, _shape())
+    assert without == prompt.chart_user_message(QUESTION, SQL, _shape(), ())
+    assert "Earlier attempts" not in without
+
+
+def test_chart_message_appends_failures_last():
+    without = prompt.chart_user_message(QUESTION, SQL, _shape())
+    with_failure = prompt.chart_user_message(
+        QUESTION, SQL, _shape(), ((None, "The chart specification had no mark."),)
+    )
+    assert with_failure.endswith("The chart specification had no mark.\n")
+    # The earlier sections are untouched; the new one is joined on like any other.
+    assert with_failure.split("## Earlier attempts")[0] == without[:-1] + "\n\n"
+
+
+def test_failure_wording_names_nothing_about_the_schema():
+    lowered = prompt._failures_section(((None, "x"),)).lower()
+    for word in FORBIDDEN_IN_PROMPTS:
+        assert word not in lowered

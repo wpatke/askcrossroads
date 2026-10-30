@@ -556,7 +556,8 @@ class FakeModel:
     a malformed reply or a provider failure without a network.
 
     `calls` records every call in order, so a test can assert that the chart call was never
-    made before the SQL succeeded (spec §11.4).
+    made before the SQL succeeded (spec §11.4). Each recorded call includes the `failures` it
+    was given, so a repair-loop test can assert the error really was fed back.
     """
 
     def __init__(self, sql_responses=(), chart_responses=()):
@@ -564,12 +565,12 @@ class FakeModel:
         self.chart_responses = list(chart_responses)
         self.calls = []
 
-    def generate_sql(self, context, question):
-        self.calls.append(("generate_sql", question))
+    def generate_sql(self, context, question, failures=()):
+        self.calls.append(("generate_sql", question, failures))
         return self._next(self.sql_responses, "generate_sql")
 
-    def describe_chart(self, question, sql, shape):
-        self.calls.append(("describe_chart", question, sql, shape))
+    def describe_chart(self, question, sql, shape, failures=()):
+        self.calls.append(("describe_chart", question, sql, shape, failures))
         return self._next(self.chart_responses, "describe_chart")
 
     @staticmethod
