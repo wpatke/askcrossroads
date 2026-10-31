@@ -287,8 +287,8 @@ def test_a_question_through_the_real_command(crossroads_db, real_command, provid
     assert all(request["api_key"] == KEY for request in provider.requests)
     assert all(request["body"]["model"] == config.MODEL for request in provider.requests)
     # The SQL call asks for structured output; the chart call does not.
-    assert "output_config" in provider.requests[0]["body"]
-    assert "output_config" not in provider.requests[1]["body"]
+    assert "format" in provider.requests[0]["body"]["output_config"]
+    assert "format" not in provider.requests[1]["body"]["output_config"]
 
     assert command.stop() == 0
 

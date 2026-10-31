@@ -187,9 +187,9 @@ Three details matter more than the list suggests.
 
 **Validation uses DuckDB's parser, not a regular expression.** The statement check goes through the same parser that will execute the query, so there is no gap between "what the validator understood" and "what the engine will run" — the classic way SQL guards are bypassed. It also means comment-smuggling (`SELECT 1 -- ; DROP TABLE t`) is resolved correctly rather than by string matching. The function check, were it built, would go through that same parser for the same reason.
 
-One qualification, since it looks like a contradiction otherwise: the statement check is preceded by a one-line first-word test on the caller's own string (`^\s*(SELECT|WITH)\b`), which is what closes the `PRAGMA` hole described immediately below. That regex decides nothing on its own — it only ever narrows what reaches the parser, and the parser runs afterwards regardless. A regex used *instead of* the parser is the anti-pattern this paragraph rejects; one used *in front of* it is not.
+One qualification, since it looks like a contradiction otherwise: the statement check is preceded by a one-line first-word test on the caller's own string (`^\s*(SELECT|WITH)\b`), which closes the `PRAGMA` hole described immediately below. That regex decides nothing on its own — it only ever narrows what reaches the parser, and the parser runs afterwards regardless. A regex used *instead of* the parser is the anti-pattern this paragraph rejects; one used *in front of* it is not.
 
-**Statement type alone is not enough.** DuckDB rewrites `PRAGMA version` into `SELECT * FROM pragma_version()` before reporting its type, so a `PRAGMA` statement would pass a check that only looks at parsed type — and some `PRAGMA` commands can change database settings, including re-enabling the external access this layer exists to block. So the validator also checks the statement's original text and rejects anything that doesn't start with `SELECT` or `WITH`, before the parse-type check ever runs. This is a verified behaviour of the engine, not a theoretical concern, which is why §11.3 requires an explicit `PRAGMA` test case.
+**Statement type alone is not relied on.** DuckDB before 2.0 rewrote `PRAGMA version` into `SELECT * FROM pragma_version()` before reporting its type, so a `PRAGMA` statement would pass a check that only looked at parsed type — and some `PRAGMA` commands can change database settings, including re-enabling the external access this layer exists to block. DuckDB 2.0, the minimum this project requires, reports `PRAGMA` as its own statement type, so the parse-type check now rejects it as well. The validator still checks the statement's original text first and rejects anything that doesn't start with `SELECT` or `WITH`, before the parse-type check ever runs, so that `PRAGMA` is never left depending on how the parser happens to classify it. A test guards the engine behaviour, and §11.3 requires an explicit `PRAGMA` test case.
 
 **The layers are independent on purpose.** `enable_external_access = false` already blocks `read_csv_auto('/etc/hosts')` at execution time; the parse-tree check rejects it earlier. Either alone would do; both together mean a defect in one is not a breach. The read-only connection is the backstop for all of it, which is why §11.4 requires a test that attempts a write *as if the validator had been bypassed entirely*. That independence holds as written for every layer except the parse-tree function check, which is not built — see immediately below.
 
@@ -382,13 +382,16 @@ Every bound in this specification is a named constant in one module, not a liter
 
 ```python
 # src/askcrossroads/config.py
-MODEL = "claude-opus-5"    # the only supported model in v1 (§9)
+MODEL = "claude-opus-5-5"  # the only supported model in v1 (§9)
+EFFORT = "high"            # sent with every request; this model defaults to medium
 MAX_TOKENS = 16_000        # required by the API; caps thinking + response together
 MAX_ATTEMPTS = 3           # per model call: initial attempt + at most 2 repairs (§4)
 MAX_RESULT_ROWS = 5_000    # result rows returned to the browser (§5)
 ```
 
-**Everything else is the API default.** No temperature, no effort level, no thinking configuration — partly because current Anthropic models reject `temperature`, `top_p`, and `top_k` outright with a 400, and partly because there is nothing here worth tuning before there is evidence that a default is wrong. A knob added speculatively is a knob nobody knows the right value for.
+**Effort is set explicitly to `high`.** Writing correct SQL from a plain-English question is the hard part of this tool, and `high` is the effort level the SQL prompt was developed against. This model's own default is `medium`, so leaving it unset would quietly lower the effort spent on every question.
+
+**Everything else is the API default.** No temperature, no thinking configuration — partly because current Anthropic models reject `temperature`, `top_p`, and `top_k` outright with a 400, and partly because there is nothing here worth tuning before there is evidence that a default is wrong. A knob added speculatively is a knob nobody knows the right value for.
 
 The row cap is applied by fetching `MAX_RESULT_ROWS + 1` rows and truncating, **not** by injecting a `LIMIT` into the generated SQL. Rewriting the query would mean the SQL displayed to the user was not the SQL they think it is (§8). Truncation is instead reported explicitly in the UI: when `truncated` is `true`, a notice is shown above the results table stating that the result was capped at `MAX_RESULT_ROWS` rows and that the chart reflects only those rows, not the full result.
 
@@ -455,7 +458,7 @@ Must reject:
 - `INSERT`
 - `CREATE`
 - `ATTACH`
-- `PRAGMA` (note the `SELECT`-rewrite in §5)
+- `PRAGMA` (note the pre-2.0 `SELECT`-rewrite in §5)
 - `COPY`
 - Any file-reading function (`read_csv_auto`, `read_parquet`, `glob`, …) — *specified, not implemented; see §5*
 - Multiple statements separated by `;`

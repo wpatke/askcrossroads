@@ -253,15 +253,20 @@ def test_generate_sql_requests_the_output_schema(context):
 
 
 def test_generate_sql_sends_no_extra_parameters(context):
-    """Spec §8: the model runs on API defaults. No thinking, temperature, effort, speed or
-    betas."""
+    """Spec §8: apart from the configured effort, the model runs on API defaults. No
+    thinking, temperature, speed or betas."""
     sent = _sent_for_sql(context)
     assert set(sent) == {"model", "max_tokens", "system", "messages", "output_config"}
-    assert set(sent["output_config"]) == {"format"}
+    assert set(sent["output_config"]) == {"effort", "format"}
+
+
+def test_both_calls_send_the_configured_effort(context):
+    assert _sent_for_sql(context)["output_config"]["effort"] == config.EFFORT
+    assert _sent_for_chart()["output_config"] == {"effort": config.EFFORT}
 
 
 def test_describe_chart_sends_no_output_schema():
-    assert "output_config" not in _sent_for_chart()
+    assert "format" not in _sent_for_chart()["output_config"]
 
 
 def test_describe_chart_sends_the_chart_system_prompt():

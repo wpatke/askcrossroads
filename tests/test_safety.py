@@ -38,8 +38,8 @@ def test_an_allowed_verdict_carries_no_reason():
 
 
 # --- Gate 1: the original text (spec §5) -------------------------------------------
-# Every one of these parses to a statement type that is NOT select, except PRAGMA, which
-# is the whole reason this gate reads the caller's string rather than the parsed one.
+# Every one of these parses to a statement type that is NOT select. Gate 1 rejects them
+# by their text before the parser is consulted; gate 3 would also reject them by type.
 
 
 @pytest.mark.parametrize(
@@ -60,30 +60,18 @@ def test_a_statement_that_is_not_a_read_is_rejected(statement):
     assert verdict.reason == "not_a_read"
 
 
-def test_pragma_is_rejected_even_though_it_parses_as_a_select():
+def test_pragma_is_rejected_by_its_text():
     """The case spec §11.3 calls out by name.
 
-    DuckDB rewrites `PRAGMA version` into a SELECT before reporting its type, and stores
-    the rewritten text on the statement, so neither the parsed type nor the parsed text
-    can tell the two apart. Only the caller's original string can. Some PRAGMA commands
-    re-enable the external access database.py switched off, so this is a real hole.
+    Some PRAGMA commands re-enable the external access database.py switched off, so this
+    must never get through. DuckDB before 2.0 reported `PRAGMA version` as a SELECT, which
+    is why gate 1 reads the caller's original string rather than the parsed statement.
     """
     verdict = validate_sql("PRAGMA version")
     assert verdict.allowed is False
     # The reason matters as much as the rejection: if this ever reads "not_a_select", the
-    # gate order has been changed and the hole is open again for other PRAGMA commands.
+    # gate order has been changed and PRAGMA is now relying on the parser alone.
     assert verdict.reason == "not_a_read"
-
-
-def test_the_pragma_hole_is_real_and_this_gate_is_what_closes_it():
-    """Proves the premise rather than trusting it.
-
-    If this test ever fails, DuckDB has changed and the ordering rationale in the module
-    comment needs revisiting -- but the gate is still correct, so nothing is urgent.
-    """
-    statement = duckdb.extract_statements("PRAGMA version")[0]
-    assert statement.type == duckdb.StatementType.SELECT
-    assert statement.query.lstrip().upper().startswith("SELECT")
 
 
 @pytest.mark.parametrize(
@@ -444,28 +432,20 @@ def test_file_reading_queries_pass_validation_but_the_connection_refuses_them(co
 # =====================================================================================
 # A guard on the engine behaviour this module depends on
 # =====================================================================================
-# safety.py's check 1 exists, and runs first, only because of this fact about DuckDB. It
-# is not documented as a stable contract, and a DuckDB upgrade could change it without
-# anything else in this project noticing.
+# safety.py's module comment says DuckDB 2.0 reports PRAGMA as its own statement type, so
+# check 3 rejects it independently of check 1. That is not documented as a stable
+# contract, and a DuckDB upgrade could change it without anything else in this project
+# noticing.
 #
-# A failure here is not necessarily a defect in safety.py -- check 1 would still correctly
-# reject PRAGMA by its text either way. It means the reasoning recorded in safety.py's
-# module comment has gone stale and needs rewriting.
+# A failure here is not a defect in safety.py -- check 1 still rejects PRAGMA by its text
+# either way. It means PRAGMA is back to relying on check 1 alone, and the reasoning in
+# safety.py's module comment needs rewriting.
 
 
-def test_duckdb_still_rewrites_pragma_into_a_select():
-    """Check 1 exists, and runs first, only because of this.
-
-    If DuckDB ever stops rewriting PRAGMA, check 1 is no longer load-bearing for this
-    particular case -- but it stays regardless, because it is also what rejects SET,
-    INSTALL, LOAD, EXPORT, DESCRIBE and CALL.
-    """
+def test_duckdb_reports_pragma_as_its_own_statement_type():
+    """Check 3 is a second, independent barrier against PRAGMA only because of this."""
     statement = duckdb.extract_statements("PRAGMA version")[0]
-    assert statement.type == duckdb.StatementType.SELECT, (
-        "DuckDB no longer reports PRAGMA as a SELECT -- the rationale in safety.py's "
-        "module comment needs revisiting"
-    )
-    assert statement.query.lstrip().upper().startswith("SELECT"), (
-        "DuckDB no longer stores the rewritten text on the statement -- check 1 could "
-        "now read statement.query safely, though there is no reason to change it"
+    assert statement.type == duckdb.StatementType.PRAGMA, (
+        "DuckDB no longer reports PRAGMA as a PRAGMA statement -- the rationale in "
+        "safety.py's module comment needs revisiting"
     )

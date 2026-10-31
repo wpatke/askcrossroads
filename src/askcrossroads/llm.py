@@ -299,8 +299,8 @@ class AnthropicClient:
     def _send(self, *, system, messages, output_config=None):
         """One request. Returns the raw response; raises ModelError for anything unusable.
 
-        Only the parameters spec §8 allows are sent. No thinking configuration, no
-        temperature, no effort: the model runs on API defaults, and MAX_TOKENS caps thinking
+        Only the parameters spec §8 allows are sent. Effort is always set to config.EFFORT;
+        there is no thinking configuration and no temperature, and MAX_TOKENS caps thinking
         and response together.
         """
         arguments = {
@@ -308,9 +308,9 @@ class AnthropicClient:
             "max_tokens": config.MAX_TOKENS,
             "system": system,
             "messages": messages,
+            # Effort lives inside output_config, alongside any output format the caller asked for.
+            "output_config": {"effort": config.EFFORT, **(output_config or {})},
         }
-        if output_config is not None:
-            arguments["output_config"] = output_config
 
         try:
             response = self._client.messages.create(**arguments)

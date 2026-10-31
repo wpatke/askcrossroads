@@ -30,13 +30,14 @@ import duckdb
 #
 # This is not "validation by regular expression" -- gates 2 and 3 below both run through
 # DuckDB's own parser regardless of what this matches. It is a first-word check that only
-# ever narrows what reaches the parser, and it exists because the parser alone cannot
-# close one specific hole: DuckDB rewrites `PRAGMA version` into `SELECT * FROM
-# pragma_version()` before reporting its type, AND stores that rewritten text on the
-# statement. So neither the parsed type nor the parsed text can tell a PRAGMA from a
-# SELECT -- only the caller's original string can. Some PRAGMA commands change database
-# settings, including re-enabling the external access database.py switched off, which is
-# why this matters rather than merely being untidy.
+# ever narrows what reaches the parser. It was first added because DuckDB before 2.0
+# rewrote `PRAGMA version` into `SELECT * FROM pragma_version()` before reporting its
+# type, so the parser alone could not tell a PRAGMA from a SELECT. DuckDB 2.0 (the
+# minimum this project requires) reports PRAGMA as its own statement type, so gate 3
+# now rejects it too. This gate stays anyway: it does not rely on how the parser happens
+# to classify a statement, and some PRAGMA commands change database settings, including
+# re-enabling the external access database.py switched off. Two independent gates are
+# worth keeping for that.
 #
 # Only leading whitespace is skipped. A leading comment is rejected on purpose: skipping
 # over comments here would mean writing a comment scanner of our own, which is exactly the
@@ -91,8 +92,8 @@ def validate_sql(sql):
     if not isinstance(sql, str) or not sql.strip():
         return _rejected("empty", "No SQL was supplied.")
 
-    # Gate 1: the ORIGINAL text. See the note on _STARTS_LIKE_A_READ above -- reading this
-    # from the parsed statement instead would let a PRAGMA through.
+    # Gate 1: the ORIGINAL text. See the note on _STARTS_LIKE_A_READ above for why this
+    # reads the caller's string rather than anything the parser produced.
     if not _STARTS_LIKE_A_READ.match(sql):
         return _rejected(
             "not_a_read",

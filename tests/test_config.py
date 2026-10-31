@@ -33,7 +33,8 @@ def db_file(tmp_path):
 
 def test_bounds_have_their_specified_values():
     """Each bound is checked by value, so a silent change fails a test."""
-    assert config.MODEL == "claude-opus-5"
+    assert config.MODEL == "claude-opus-5-5"
+    assert config.EFFORT == "high"
     assert config.MAX_TOKENS == 16_000
     assert config.MAX_ATTEMPTS == 3
     assert config.MAX_RESULT_ROWS == 5_000

@@ -14,7 +14,8 @@ from dotenv import dotenv_values
 # --- Bounds (spec §10) -----------------------------------------------------------
 # Everything else is the API default: no temperature, no thinking configuration.
 
-MODEL = "claude-opus-5"    # the only supported model in v1 (spec §9)
+MODEL = "claude-opus-5-5"  # the only supported model in v1 (spec §9)
+EFFORT = "high"            # how hard the model thinks; set because this model defaults to medium
 MAX_TOKENS = 16_000        # required by the API; caps thinking + response together
 MAX_ATTEMPTS = 3           # per model call: initial attempt + at most 2 repairs (spec §4)
 MAX_RESULT_ROWS = 5_000    # result rows returned to the browser (spec §5)
