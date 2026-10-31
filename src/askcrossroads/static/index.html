@@ -27,13 +27,19 @@
           </svg>
         </button>
       </div>
-      <!-- Which database is loaded, and what built it. Filled in by app.js. -->
-      <p id="provenance" class="muted small">Reading the database…</p>
+      <!-- Which database is loaded, and what built it. Filled in by app.js. A short line
+           (version and build date) that opens, when clicked, into the full list. The list
+           stays hidden until there is something to show, and the line cannot be opened
+           while it is hidden. -->
+      <details id="provenance" class="provenance">
+        <summary id="provenance-summary">Reading the database…</summary>
+        <dl id="provenance-details" hidden></dl>
+      </details>
     </header>
 
     <form id="ask-form" data-state="idle">
       <label for="question" class="visually-hidden">Your question</label>
-      <textarea id="question" rows="3" autofocus
+      <textarea id="question" rows="2" autofocus
                 placeholder="Ask a question about this database in plain English"></textarea>
       <div class="controls">
         <!-- The page's one control: Ask, which becomes Stop while a question runs. -->

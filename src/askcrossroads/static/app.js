@@ -17,7 +17,8 @@ const form = document.getElementById("ask-form");
 const questionBox = document.getElementById("question");
 const askButton = document.getElementById("ask-button");
 const progress = document.getElementById("progress");
-const provenanceLine = document.getElementById("provenance");
+const provenanceSummary = document.getElementById("provenance-summary");
+const provenanceDetails = document.getElementById("provenance-details");
 const answerSection = document.getElementById("answer");
 const messageLine = document.getElementById("message");
 const truncationNotice = document.getElementById("truncation");
@@ -462,27 +463,67 @@ async function loadProvenance() {
       throw new Error(`HTTP ${response.status}`);
     }
     const summary = await response.json();
-    provenanceLine.textContent = describeProvenance(summary.provenance);
+    showProvenance(summary.provenance);
   } catch (error) {
-    provenanceLine.textContent = TEXT.provenanceFailed;
+    provenanceSummary.textContent = TEXT.provenanceFailed;
   }
 }
 
-// "Crossroads-UK 0.9.0 · schema 4 · built 2026-01-01 12:00:00 UTC · years: 2023 · …"
+// The short line: "Crossroads-UK 0.9.0 · built 1 Jan 2026".
+// The list it opens into: Version, Schema, Built, then every build parameter.
 // The build parameters differ from build to build, so their names are never written here:
 // every one the file records is listed, in the order the file gives them.
-function describeProvenance(provenance) {
-  const parts = [
-    `Crossroads-UK ${provenance.crossroads_version}`,
-    `schema ${provenance.schema_version}`,
-    provenance.built_at_utc
-      ? `built ${provenance.built_at_utc.replace("T", " ")} UTC`
-      : "build time not recorded",
+function showProvenance(provenance) {
+  const version = `Crossroads-UK ${provenance.crossroads_version}`;
+  const built = provenance.built_at_utc;
+  provenanceSummary.textContent = built
+    ? `${version} · built ${describeDate(built)}`
+    : version;
+
+  const rows = [
+    ["Version", version],
+    ["Schema", String(provenance.schema_version)],
+    ["Built", built ? `${describeDate(built)}, ${describeTime(built)} UTC` : "Not recorded"],
   ];
   for (const [name, value] of Object.entries(provenance.parameters || {})) {
-    parts.push(`${name}: ${describeParameter(value)}`);
+    rows.push([describeName(name), describeParameter(value)]);
   }
-  return parts.join(" · ");
+
+  provenanceDetails.replaceChildren();
+  for (const [label, value] of rows) {
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const detail = document.createElement("dd");
+    detail.textContent = value;
+    provenanceDetails.append(term, detail);
+  }
+  provenanceDetails.hidden = false;
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// "2026-07-16T10:55:13.101633" becomes "16 Jul 2026". Anything not in that shape is shown
+// as it is.
+function describeDate(timestamp) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(timestamp);
+  if (!match) {
+    return timestamp;
+  }
+  const [, year, month, day] = match;
+  return `${Number(day)} ${MONTHS[Number(month) - 1]} ${year}`;
+}
+
+// "2026-07-16T10:55:13.101633" becomes "10:55" (hours and minutes only).
+function describeTime(timestamp) {
+  const match = /[T ](\d{2}:\d{2})/.exec(timestamp);
+  return match ? match[1] : "";
+}
+
+// "boundary_mode" becomes "Boundary mode".
+function describeName(name) {
+  const words = name.replaceAll("_", " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 // A list is shown as "a, b, c"; anything else as its plain text.

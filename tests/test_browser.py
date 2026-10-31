@@ -66,11 +66,16 @@ BUSY = "A question is already being answered. Wait for it, or press Stop."
 REJECTED_KEY = "rejected the configured key"   # llm.py's sentence for a rejected key
 STOPPED = "Stopped. Nothing more was run."
 NO_CONNECTION = "Could not reach AskCrossroads. Check that it is still running in the terminal."
-PROVENANCE = (
-    "Crossroads-UK 0.9.0 · schema 4 · built 2026-01-01 12:00:00 UTC · "
-    "boundary_mode: snapshot · datasets: aadf, bank_holidays, era5_weather, stats19 · "
-    "years: 2023"
-)
+PROVENANCE_SUMMARY = "Crossroads-UK 0.9.0 · built 1 Jan 2026"
+PROVENANCE_LABELS = ["Version", "Schema", "Built", "Boundary mode", "Datasets", "Years"]
+PROVENANCE_VALUES = [
+    "Crossroads-UK 0.9.0",
+    "4",
+    "1 Jan 2026, 12:00 UTC",
+    "snapshot",
+    "aadf, bank_holidays, era5_weather, stats19",
+    "2023",
+]
 ERROR_CLASS = re.compile(r"\berror\b")
 
 
@@ -210,9 +215,14 @@ def test_the_page_shows_what_built_the_database(open_page):
     page = open_page()
     expect(page).to_have_title("AskCrossroads")
     expect(page.locator("h1")).to_have_text("AskCrossroads")
+    # A short line under the title; the full list stays closed until it is clicked.
+    expect(page.locator("#provenance-summary")).to_have_text(PROVENANCE_SUMMARY)
+    expect(page.locator("#provenance-details")).to_be_hidden()
+    page.locator("#provenance-summary").click()
     # Every build parameter is listed, in the file's own order, with none of their names
     # written into the page's code.
-    expect(page.locator("#provenance")).to_have_text(PROVENANCE)
+    expect(page.locator("#provenance-details dt")).to_have_text(PROVENANCE_LABELS)
+    expect(page.locator("#provenance-details dd")).to_have_text(PROVENANCE_VALUES)
 
 
 def test_the_page_opens_ready_for_a_question(open_page):

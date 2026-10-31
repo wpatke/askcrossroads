@@ -76,8 +76,81 @@ h2 {
   font-size: 0.875rem;
 }
 
-#provenance {
-  margin: 0.25rem 0 0;
+/* --- The database line under the title --- */
+
+.provenance {
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+/* The short line: quiet text with a small arrow, darker when the pointer is over it. */
+.provenance summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.provenance summary::-webkit-details-marker {
+  display: none;
+}
+
+.provenance summary:hover {
+  color: var(--text);
+}
+
+.provenance summary:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* The arrow: a small chevron pointing right, turned to point down when the list is open. */
+.provenance summary::after {
+  content: "";
+  width: 0.35em;
+  height: 0.35em;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.provenance[open] summary::after {
+  transform: rotate(45deg);
+}
+
+/* While the database is being read, or if reading it failed, there is no list to open: no
+   arrow, and the line does nothing when clicked. */
+.provenance:has(dl[hidden]) summary {
+  pointer-events: none;
+}
+
+.provenance:has(dl[hidden]) summary::after {
+  display: none;
+}
+
+/* The list: labels on the left, values on the right, in a light box. */
+.provenance dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1.5rem;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0.5rem 0 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.provenance dd {
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
 }
 
 /* The title on the left, the light/dark button in the top-right corner. */
