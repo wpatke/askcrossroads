@@ -421,9 +421,12 @@ function rowObjects(columns, rows) {
 function chartColours() {
   const style = getComputedStyle(document.documentElement);
   const token = (name) => style.getPropertyValue(name).trim();
-  // Fill the column's width, leaving room for axis labels and a legend.
-  const width = Math.max(240, chartBox.clientWidth - 120);
+  // Fill the column's width. The axis labels and legend have to fit inside it too.
+  const width = Math.max(240, chartBox.clientWidth);
   return {
+    // "fit-x" shrinks the plotting area until the whole chart, labels and legend included,
+    // is exactly `width` across. Without it, long labels push the chart past its box.
+    autosize: { type: "fit-x", contains: "padding" },
     background: "transparent",
     font: token("--font-sans"),
     view: {

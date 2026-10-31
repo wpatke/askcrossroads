@@ -305,6 +305,10 @@ suits a bar. A value moving across a dated column suits a line. Where a column h
 of distinct values, do not put it on an axis that will be unreadable — pick the encoding
 that stays legible, or chart a different pair of columns.
 
+Draw a single view. Do not use "facet", "row", "column", "concat", "hconcat", "vconcat" or
+"repeat", and do not set "width", "height" or "autosize". The application sizes the chart
+to fit the page.
+
 The rows arrive in the order the SQL sorted them, and that is the order they should be
 drawn in. Preserve it. Vega-Lite sorts the values of a nominal or ordinal field
 alphabetically unless told otherwise, so set "sort": null on every encoding channel that
