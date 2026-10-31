@@ -34,6 +34,14 @@
       <details id="provenance" class="provenance">
         <summary id="provenance-summary">Reading the database…</summary>
         <dl id="provenance-details" hidden></dl>
+        <!-- The page's one outside link: Crossroads-UK's own account of its sources and how it
+             builds the file, so the person can judge the data behind every answer. Nothing is
+             fetched unless they click it, and it opens in a new tab so the answer stays put. -->
+        <p class="provenance-link">
+          <a href="https://github.com/wpatke/crossroads-uk/blob/main/docs/methodology.md"
+             target="_blank" rel="noopener noreferrer">Where this data comes from, and how
+            Crossroads-UK builds it</a>
+        </p>
       </details>
     </header>
 
@@ -49,7 +57,7 @@
     </form>
 
     <!-- One answer, top to bottom: a message, the truncation notice, the chart, the table,
-         then the SQL that ran. app.js shows only the parts an answer needs. -->
+         the AI note, then the SQL that ran. app.js shows only the parts an answer needs. -->
     <section id="answer" hidden>
       <p id="message" class="message" aria-live="polite" hidden></p>
       <p id="truncation" class="notice" hidden></p>
@@ -58,6 +66,13 @@
       <div id="table-wrap" class="table-wrap" hidden>
         <table id="results"></table>
       </div>
+      <!-- Shown under every answer the query produced, rows or none. The SQL can run without
+           error and still answer a slightly different question, which a person who does not
+           write SQL cannot spot, so the page says so every time. -->
+      <p id="ai-note" class="muted small" hidden>
+        An AI wrote the query behind this answer, and it can be wrong. The SQL below is exactly
+        what ran. Asking the question another way and comparing the answers is a quick check.
+      </p>
       <section id="sql-section" hidden>
         <h2>SQL</h2>
         <pre id="sql" hidden></pre>

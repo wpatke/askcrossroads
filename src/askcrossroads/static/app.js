@@ -29,6 +29,7 @@ const sqlBlock = document.getElementById("sql");
 const attemptsList = document.getElementById("attempts");
 const chartBox = document.getElementById("chart");
 const chartNote = document.getElementById("chart-note");
+const aiNote = document.getElementById("ai-note");
 
 // --- Words the page shows ---------------------------------------------------------------
 // Messages that come from the server (an error, a decline) are shown exactly as sent.
@@ -184,7 +185,9 @@ async function render(reply) {
 }
 
 // The table is drawn first, so it is on screen even while the chart is still being drawn.
+// Every answered question, even one with no rows, carries the note that an AI wrote the query.
 async function showAnswered(answer) {
+  aiNote.hidden = false;
   if (answer.rows.length === 0) {
     // Zero rows is a real answer, and there is nothing to chart.
     showMessage(TEXT.noRows, false);
@@ -220,7 +223,7 @@ function showMessage(text, isError) {
 // Empties everything an earlier answer put on the page.
 function clearAnswer() {
   answerSection.hidden = true;
-  for (const part of [messageLine, truncationNotice, tableWrap, sqlSection, sqlBlock]) {
+  for (const part of [messageLine, truncationNotice, tableWrap, aiNote, sqlSection, sqlBlock]) {
     part.hidden = true;
   }
   messageLine.textContent = "";

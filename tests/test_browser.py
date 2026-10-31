@@ -77,6 +77,8 @@ PROVENANCE_VALUES = [
     "2023",
 ]
 ERROR_CLASS = re.compile(r"\berror\b")
+METHODOLOGY = "https://github.com/wpatke/crossroads-uk/blob/main/docs/methodology.md"
+AI_NOTE = "An AI wrote the query behind this answer, and it can be wrong."
 
 
 def reply_decline(provider, explanation=DECLINE_TEXT):
@@ -223,6 +225,11 @@ def test_the_page_shows_what_built_the_database(open_page):
     # written into the page's code.
     expect(page.locator("#provenance-details dt")).to_have_text(PROVENANCE_LABELS)
     expect(page.locator("#provenance-details dd")).to_have_text(PROVENANCE_VALUES)
+    # Under the list, the link to how Crossroads-UK builds the file. Showing it fetches
+    # nothing: open_page fails the test if the page reaches outside the local server.
+    link = page.locator(".provenance-link a")
+    expect(link).to_be_visible()
+    expect(link).to_have_attribute("href", METHODOLOGY)
 
 
 def test_the_page_opens_ready_for_a_question(open_page):
@@ -405,6 +412,31 @@ def test_an_answer_shows_its_table_and_sql(open_page, server):
     expect(page.locator("#truncation")).to_be_hidden()
     expect(page.locator("#sql")).to_have_text(GOOD_SQL)
     assert attempt_lines(page) == ["Attempt 1 succeeded."]
+
+
+def test_an_answer_says_an_ai_wrote_its_query(open_page, server):
+    command, provider = server
+    provider.reply_sql(GOOD_SQL)
+    provider.reply_error(400)
+    page = open_page()
+    ask(page)
+
+    # Between the table and the SQL it points to.
+    note = page.locator("#ai-note")
+    expect(note).to_contain_text(AI_NOTE)
+    note_y = note.bounding_box()["y"]
+    assert page.locator("#table-wrap").bounding_box()["y"] < note_y
+    assert note_y < page.locator("#sql-section").bounding_box()["y"]
+
+    # No rows is still an answer the query produced, so the note stays.
+    provider.reply_sql("SELECT 1 AS n WHERE false")
+    ask(page)
+    expect(note).to_contain_text(AI_NOTE)
+
+    # A decline ran no query, so there is nothing for the note to be about.
+    reply_decline(provider)
+    ask(page)
+    expect(note).to_be_hidden()
 
 
 def test_values_are_shown_exactly_as_the_database_returned_them(open_page, server):
@@ -607,6 +639,7 @@ def test_a_new_question_clears_the_last_answer(open_page, server):
     reply_decline(provider)
     ask(page, "And in 2019?")
     expect(page.locator("#table-wrap")).to_be_hidden()
+    expect(page.locator("#ai-note")).to_be_hidden()
     expect(page.locator("#sql-section")).to_be_hidden()
     assert table_cells(page) == []
     expect(page.locator("#message")).to_have_text(DECLINE_TEXT)

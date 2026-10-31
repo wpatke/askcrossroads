@@ -2,8 +2,8 @@
 
 These need nothing beyond the dev extra, so they always run. What the page actually shows is
 proven in tests/test_browser.py. This file proves the page is put together safely: it loads only
-its own files, every part the script looks for is present, and its own code neither names
-anything from the schema nor writes HTML.
+its own files, its one outside link is the expected one, every part the script looks for is
+present, and its own code neither names anything from the schema nor writes HTML.
 """
 
 import hashlib
@@ -27,8 +27,12 @@ OWN_FILES = ["index.html", "theme.js", "app.js", "style.css"]
 # The page's own scripts.
 OWN_SCRIPTS = ["theme.js", "app.js"]
 
-# Every file index.html links to, in the order it links them.
+# Every file index.html loads, in the order it loads them.
 LINKED = ["style.css", "theme.js", "vendor/vega.min.js", "vendor/vega-lite.min.js", "app.js"]
+
+# The page's one link a person can click, to Crossroads-UK's account of where its data comes
+# from. A clicked link loads nothing into this page, so it is checked apart from LINKED.
+METHODOLOGY = "https://github.com/wpatke/crossroads-uk/blob/main/docs/methodology.md"
 
 # The vendored chart libraries and their licences, byte for byte. A change here must be a
 # deliberate update (see static/vendor/README.md), never an accident.
@@ -44,12 +48,17 @@ SCHEMA_WORDS = re.compile(r"collision|weather|aadf|stats19|vehicle|casualty", re
 
 
 class _PageParts(HTMLParser):
-    """Collects every element id, every src/href value, and the scripts loaded in <head>."""
+    """Collects every element id, every src/href value, and the scripts loaded in <head>.
+
+    An <a> is kept apart, in anchors, because a link is only followed when clicked. Every
+    other src or href is something the browser loads with the page, and goes in links.
+    """
 
     def __init__(self):
         super().__init__()
         self.ids = set()
         self.links = []
+        self.anchors = []
         self.head_scripts = []
         self._in_head = False
 
@@ -61,6 +70,9 @@ class _PageParts(HTMLParser):
             self.head_scripts.append(attributes.get("src"))
         if attributes.get("id"):
             self.ids.add(attributes["id"])
+        if tag == "a":
+            self.anchors.append(attributes)
+            return
         for name in ("src", "href"):
             if attributes.get(name):
                 self.links.append(attributes[name])
@@ -86,11 +98,20 @@ def page(client):
     return parts
 
 
-def test_the_page_links_only_local_files(page):
+def test_the_page_loads_only_local_files(page):
     assert page.links == LINKED
     for link in page.links:
         # Nothing with a scheme (https:, data:) and nothing protocol-relative (//host).
         assert not re.match(r"^([a-z][a-z0-9+.-]*:|//)", link, re.IGNORECASE), link
+
+
+def test_the_only_outside_link_is_the_methodology(page):
+    assert [anchor.get("href") for anchor in page.anchors] == [METHODOLOGY]
+    # A new tab keeps the answer on screen. noopener stops the new tab reaching back into
+    # this page; noreferrer stops it being told the local address it was opened from.
+    anchor = page.anchors[0]
+    assert anchor.get("target") == "_blank"
+    assert set(anchor.get("rel", "").split()) >= {"noopener", "noreferrer"}
 
 
 def test_every_linked_file_is_served(client, page):

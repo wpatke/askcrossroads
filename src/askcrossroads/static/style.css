@@ -153,6 +153,16 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+/* The link to Crossroads-UK's methodology, under the list. */
+.provenance-link {
+  margin: 0.5rem 0 0;
+}
+
+.provenance-link a {
+  color: var(--text);
+  text-underline-offset: 2px;
+}
+
 /* The title on the left, the light/dark button in the top-right corner. */
 .title-row {
   display: flex;
@@ -280,7 +290,8 @@ button:focus-visible {
   overflow-x: auto;
 }
 
-#chart-note {
+#chart-note,
+#ai-note {
   margin: 0;
 }
 
