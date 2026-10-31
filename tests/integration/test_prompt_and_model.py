@@ -58,25 +58,52 @@ def test_an_unanswerable_question_is_declined(client, database):
     assert result.explanation
 
 
+# A result the SQL has already counted: one row per category, with the count in `total`.
+COUNTED_QUESTION = "How many in each category?"
+COUNTED_SQL = "SELECT category, COUNT(*) AS total FROM t GROUP BY category ORDER BY category"
+COUNTED_SHAPE = prompt.ResultShape(
+    columns=(("category", "VARCHAR"), ("total", "BIGINT")),
+    row_count=3,
+    distinct_counts=(("category", 3),),
+    sample_rows=(("Alpha", 10), ("Beta", 7), ("Gamma", 1)),
+)
+
+
+def _channels(encoding):
+    """Every encoding channel of a spec. A channel may hold a list (several tooltips)."""
+    for value in encoding.values():
+        for channel in value if isinstance(value, list) else [value]:
+            if isinstance(channel, dict):
+                yield channel
+
+
 def test_a_real_chart_call_returns_a_spec(client):
     """Spec §11.2: a chart call returning a spec that parses as Vega-Lite, with no data."""
-    shape = prompt.ResultShape(
-        columns=(("category", "VARCHAR"), ("total", "BIGINT")),
-        row_count=3,
-        distinct_counts=(("category", 3),),
-        sample_rows=(("Alpha", 10), ("Beta", 7), ("Gamma", 1)),
-    )
-    spec = client.describe_chart(
-        "How many in each category?",
-        "SELECT category, COUNT(*) AS total FROM t GROUP BY category ORDER BY category",
-        shape,
-    )
+    spec = client.describe_chart(COUNTED_QUESTION, COUNTED_SQL, COUNTED_SHAPE)
 
     # describe_chart already rejects a spec with data or without mark/encoding; these
     # restate the contract so a regression in the parser cannot hide one here.
     assert "data" not in spec
     assert "mark" in spec
     assert isinstance(spec["encoding"], dict)
+
+
+def test_a_chart_of_counted_rows_does_not_count_them_again(client):
+    """The SQL has already counted, so the chart must plot the count column as it is (spec §7).
+
+    Counting the rows again would draw every bar at 1: a believable chart that contradicts
+    the table beside it, which no offline test can catch, because only the real model writes
+    the spec. Asserts on the spec's shape, never its wording. The model is not deterministic
+    (spec §8), so a single failure is a signal about the chart prompt rather than proof of a
+    bug.
+    """
+    spec = client.describe_chart(COUNTED_QUESTION, COUNTED_SQL, COUNTED_SHAPE)
+    channels = list(_channels(spec["encoding"]))
+
+    assert any(channel.get("field") == "total" for channel in channels), spec
+    assert not any("aggregate" in channel for channel in channels), spec
+    for step in spec.get("transform", []):
+        assert "aggregate" not in step and "joinaggregate" not in step, spec
 
 
 def test_the_second_call_registers_a_cache_read(client, database):

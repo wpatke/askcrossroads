@@ -9,16 +9,10 @@ Every test builds its own environment. None reads the developer's real .env or k
 can reach the network: the model client is pointed at a local address where nothing listens.
 """
 
-import os
-import signal
 import socket
-import subprocess
-import sys
-import sysconfig
 import threading
 import time
 import webbrowser
-from pathlib import Path
 
 import httpx2
 import pytest
@@ -27,8 +21,7 @@ from fastapi.testclient import TestClient
 from askcrossroads import app, config
 
 from provider_stub import ProviderStub
-
-KEY = "test-key-not-a-real-credential"
+from real_command import KEY, SCRIPT, UNREACHABLE, RealCommand, free_port, posix_only
 
 QUESTION = "How many collisions were there in each kind of weather?"
 GOOD_SQL = (
@@ -52,25 +45,7 @@ REJECTED_KEY = "rejected the configured key"
 
 BUSY = "A question is already being answered. Wait for it, or press Stop."
 
-# Nothing listens on port 9 (the "discard" port). A model call pointed here fails at once,
-# offline. No test in this half should make one, but if a bug did, it could not reach the
-# real API.
-UNREACHABLE = "http://127.0.0.1:9"
-
-SCRIPT = Path(sysconfig.get_path("scripts")) / "askcrossroads"
-
 REFUSAL = "does not look like a Crossroads-UK database"
-
-posix_only = pytest.mark.skipif(
-    sys.platform == "win32", reason="stops the server with a POSIX Ctrl+C signal"
-)
-
-
-def free_port():
-    """A localhost port nothing is listening on right now."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
 
 
 def port_is_free(port):
@@ -213,81 +188,6 @@ def test_a_bad_port_setting_exits_before_opening_the_database(
 
 
 # --- The real command -------------------------------------------------------------------
-
-
-class RealCommand:
-    """The installed `askcrossroads` script, started as a user would start it.
-
-    Output goes to files rather than pipes, so a chatty server can never block on a full pipe.
-    The environment is built from scratch: never a copy of os.environ.
-    """
-
-    def __init__(self, workdir, database, provider_url=UNREACHABLE):
-        if not SCRIPT.exists():
-            pytest.fail(f"console script not found at {SCRIPT}; run .venv/bin/pip install -e .")
-        self.port = free_port()
-        self.url = f"http://127.0.0.1:{self.port}"
-        self._stdout = open(workdir / "stdout.txt", "w+")
-        self._stderr = open(workdir / "stderr.txt", "w+")
-        environment = {
-            "PATH": os.environ.get("PATH", ""),
-            # Somewhere with nothing in it, so no real profile or .env is ever read.
-            "HOME": str(workdir),
-            "PYTHONUNBUFFERED": "1",
-            "ANTHROPIC_API_KEY": KEY,
-            "ASKCROSSROADS_DB": str(database),
-            "ASKCROSSROADS_PORT": str(self.port),
-            "ANTHROPIC_BASE_URL": provider_url,
-        }
-        self.process = subprocess.Popen(
-            [str(SCRIPT), "--no-browser"],
-            cwd=workdir,
-            env=environment,
-            stdout=self._stdout,
-            stderr=self._stderr,
-        )
-
-    def wait_until_serving(self, timeout=30):
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if self.process.poll() is not None:
-                raise AssertionError(f"askcrossroads exited early:\n{self.stderr()}")
-            try:
-                if httpx2.get(self.url + "/api/database", timeout=1).status_code == 200:
-                    return
-            except httpx2.TransportError:
-                pass
-            time.sleep(0.1)
-        raise AssertionError(f"askcrossroads never started serving:\n{self.stderr()}")
-
-    def stop(self, timeout=20):
-        """Press Ctrl+C and wait. Returns the exit status.
-
-        Killed if it has not stopped in time, so a failing test never leaves a server running.
-        """
-        if self.process.poll() is None:
-            self.process.send_signal(signal.SIGINT)
-        try:
-            return self.process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            self.process.kill()
-            self.process.wait()
-            raise AssertionError(f"askcrossroads did not stop within {timeout}s of Ctrl+C")
-
-    def stdout(self):
-        self._stdout.flush()
-        return Path(self._stdout.name).read_text()
-
-    def stderr(self):
-        self._stderr.flush()
-        return Path(self._stderr.name).read_text()
-
-    def close(self):
-        if self.process.poll() is None:
-            self.process.kill()
-            self.process.wait()
-        self._stdout.close()
-        self._stderr.close()
 
 
 @pytest.fixture

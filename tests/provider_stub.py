@@ -102,6 +102,15 @@ class ProviderStub:
         with self._condition:
             return self._condition.wait_for(lambda: len(self.requests) >= count, timeout)
 
+    def clear(self):
+        """Forget every queued reply and recorded request, so the next test starts clean.
+
+        The browser tests share one stub across a module, and call this between tests.
+        """
+        with self._condition:
+            self._replies.clear()
+            self.requests.clear()
+
     # --- Internals -----------------------------------------------------------------
 
     def _queue(self, reply):

@@ -297,6 +297,13 @@ The rows arrive in the order the SQL sorted them, and that is the order they sho
 drawn in. Preserve it. Vega-Lite sorts the values of a nominal or ordinal field
 alphabetically unless told otherwise, so set "sort": null on every encoding channel that
 uses one. That keeps the order the rows arrived in.
+
+The SQL has usually done the arithmetic already. If it groups rows (GROUP BY) and returns
+a counted, summed or averaged column, plot that column's values directly: put the column
+itself on the axis, with no "aggregate" on any channel and no aggregating transform.
+Counting those rows again would show 1 for every category, and the chart would contradict
+the table shown beside it. Aggregate only when the result is a list of individual records,
+for example when a histogram is the right chart.
 """
 
 

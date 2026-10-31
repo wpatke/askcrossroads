@@ -2,12 +2,51 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AskCrossroads</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>AskCrossroads</h1>
-  <!-- A placeholder. The question page replaces this file. -->
-  <p>The question page has not been built yet. The server is running:
-     <a href="/api/database">/api/database</a> describes the loaded database.</p>
+  <main>
+    <header>
+      <h1>AskCrossroads</h1>
+      <!-- Which database is loaded, and what built it. Filled in by app.js. -->
+      <p id="provenance" class="muted small">Reading the database…</p>
+    </header>
+
+    <form id="ask-form" data-state="idle">
+      <label for="question" class="visually-hidden">Your question</label>
+      <textarea id="question" rows="3" autofocus
+                placeholder="Ask a question about this database in plain English"></textarea>
+      <div class="controls">
+        <!-- The page's one control: Ask, which becomes Stop while a question runs. -->
+        <button id="ask-button" type="submit">Ask</button>
+        <span id="progress" class="muted small" aria-live="polite"></span>
+      </div>
+    </form>
+
+    <!-- One answer, top to bottom: a message, the truncation notice, the chart, the table,
+         then the SQL that ran. app.js shows only the parts an answer needs. -->
+    <section id="answer" hidden>
+      <p id="message" class="message" aria-live="polite" hidden></p>
+      <p id="truncation" class="notice" hidden></p>
+      <div id="chart" hidden></div>
+      <p id="chart-note" class="muted small" hidden></p>
+      <div id="table-wrap" class="table-wrap" hidden>
+        <table id="results"></table>
+      </div>
+      <section id="sql-section" hidden>
+        <h2>SQL</h2>
+        <pre id="sql" hidden></pre>
+        <ol id="attempts"></ol>
+      </section>
+    </section>
+  </main>
+
+  <!-- The chart libraries, kept in this folder so charts work with no internet connection.
+       They must load before app.js, which uses them. -->
+  <script src="vendor/vega.min.js"></script>
+  <script src="vendor/vega-lite.min.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

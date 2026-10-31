@@ -33,6 +33,11 @@ dev = [
   # FastAPI's TestClient. Already installed by the anthropic SDK, listed because the tests
   # import it directly.
   "httpx2>=2.0",
+  # Drives a real, invisible Chromium in tests/test_browser.py, so the page is checked the way a
+  # person would see it. A Python package: the project still has no Node toolchain. After
+  # installing, download its browser once with:
+  #   .venv/bin/python -m playwright install chromium
+  "playwright>=1.48",
 ]
 
 [project.scripts]
@@ -50,4 +55,5 @@ testpaths = ["tests"]
 addopts = "-m 'not integration'"
 markers = [
   "integration: real API calls and/or a real Crossroads-UK build (slow, needs a key and network); deselected by default, run with -m integration",
+  "browser: drives the page in a real headless Chromium (Playwright); skipped when Chromium is not installed. Part of the default run; exclude with -m 'not browser'",
 ]

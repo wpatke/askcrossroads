@@ -121,8 +121,8 @@ Nothing here is hardcoded, and §2C still holds: the instruction is phrased by o
 
 Two display rules remain, and both belong to the frontend rather than a processing step:
 
-- **A `NULL` in a label column renders as *Not recorded*.** Crossroads-UK replaces missing and unknown codes (`-1`, `9`) with `NULL` before AskCrossroads sees the file, which erases which one it was — so guessing is not an option, and every such value gets the same neutral label rather than an empty cell.
-- **A column the codebook does not cover renders as its raw code.** Never blank, never guessed.
+- **A `NULL` renders as *Not recorded*.** Crossroads-UK replaces missing and unknown codes (`-1`, `9`) with `NULL` before AskCrossroads sees the file, which erases which one it was — so guessing is not an option, and every such value gets the same neutral label rather than an empty cell. The page applies this to every `NULL` cell, not only to label columns: a query renames its columns (`AS weather`), so the browser cannot tell which ones were labels, and in a Crossroads-UK build a `NULL` means "not recorded" wherever it appears. `0`, `false` and empty text are values, and are shown as values. A chart labels a `NULL` category the same way, rather than as "null".
+- **A column the codebook does not cover renders as its raw code.** Never blank, never guessed. The page never translates codes at all: every value other than `NULL` is shown exactly as the database returned it, with no thousands separators, because a year or a code is a number too.
 
 ### The coverage guarantee, as verified
 
@@ -291,6 +291,8 @@ Asking after execution rather than alongside the SQL is what makes this call eas
 
 The frontend supplies the rows at render time — `{...spec, data: {values: rows}}`. The model describes *how* to draw; the application provides *what* to draw. That keeps the spec small enough to read and check, and keeps the result set out of the prompt.
 
+The rows are already the answer, so the spec charts them as they are. Where the SQL has counted, summed or averaged, the chart must not aggregate again: counting rows that are already counts draws every bar at 1, a believable picture that disagrees with the table beside it. The chart call's system message says so.
+
 Python never edits a returned spec. Reaching into a Vega-Lite document to inject a sort array would be exactly the bespoke charting code this design exists to avoid — and there is now nothing to inject, because the rows arrive already ordered.
 
 Choosing between a bar chart of counts by year and a stacked bar of severity by weather is a judgement about the question, which is the part of the problem the model is good at.
@@ -322,7 +324,7 @@ One supporting rule: **generated SQL should include an `ORDER BY`**, so a result
 | Layer | Choice | Rationale |
 |-------|--------|-----------|
 | Backend | Python + FastAPI | The DuckDB connection, the safety validator, and the codebook logic are Python; FastAPI keeps the HTTP surface thin and the tests direct. |
-| Frontend | One static page: vanilla JS + Vega-Lite | No Node toolchain, no build step, no `node_modules`. `git clone` then run — anything else is a barrier for the audience this tool exists for. |
+| Frontend | One static page: vanilla JS + Vega-Lite | No Node toolchain, no build step, no `node_modules`. `git clone` then run — anything else is a barrier for the audience this tool exists for. Vega and Vega-Lite are pinned copies inside the package (`static/vendor/`), not a CDN, so charts work offline and the page contacts nothing. |
 | Model | Anthropic | See below. |
 | Database | DuckDB, read-only | The format Crossroads-UK produces. |
 
@@ -368,9 +370,9 @@ Result rows are arrays in column order. Values the browser cannot hold exactly a
 
 ### Interface
 
-The UI is neat, minimalist, and professional: a single column, generous whitespace, one system font stack, no decorative colour. Its content is the question box, the results table, the chart, the executed SQL, and the provenance line. Nothing competes with those five things.
+The UI is modern, simple and professional: a single column, generous whitespace, one system font stack, and no decorative colour. It is black and white, follows the computer's light or dark setting, and keeps colour for the chart and for a question that failed. Its content is the question box, the results table, the chart, the executed SQL, and the provenance line. Nothing competes with those five things. An answer reads top to bottom: the chart, then the table, which scrolls within its own box so a long result never pushes the SQL out of reach, then the SQL and its attempt history.
 
-There is one control: the **Ask** button below the question box, which becomes **Stop** while a question is in flight and reverts when it returns. That single button is the whole cancellation story — pressing Stop calls `/api/cancel`, which interrupts the running query (§5). It replaces the timeout that an earlier draft specified: how long a query is worth waiting for is a judgement about the question, and the person who asked it is the one qualified to make it.
+There is one control: the **Ask** button below the question box, which becomes **Stop** while a question is in flight and reverts when it returns. That single button is the whole cancellation story — pressing Stop calls `/api/cancel`, which interrupts the running query (§5). It replaces the timeout that an earlier draft specified: how long a query is worth waiting for is a judgement about the question, and the person who asked it is the one qualified to make it. After Stop, the button stays disabled until the question has actually ended, so a new question can never collide with the old one. Enter asks; Shift+Enter starts a new line.
 
 ---
 
@@ -469,7 +471,7 @@ Positive cases are equally required: ordinary `SELECT`s, CTEs (`WITH … SELECT`
 |------|----------------|
 | **Read-only enforcement** | Attempt a write directly on the connection and assert it fails — proving the engine-level guard holds even if the validator were bypassed. |
 | **Convention detection** | A database that has the convention tables; one that lacks them; and one with same-named tables of the **wrong shape**. Wrong shape must produce the §1 message, not a crash or a traceback. |
-| **Label rendering** | A `NULL` in a label column renders as *Not recorded* rather than an empty cell; an uncovered column renders as its raw code (§3). |
+| **Label rendering** | Every `NULL` renders as *Not recorded* rather than an empty cell, and `0`, `false` and empty text do not; an uncovered column renders as its raw code (§3). Proven in a real browser. |
 | **Prompt prefix stability** | The same database always produces the exact same prefix, byte for byte — a new question never changes it, only a new database does. This is what makes caching work, and if it silently breaks, nothing else will catch it. |
 | **Repair loop** | Retries on a SQL error; stops at exactly 3 attempts; and — the case that matters most — does **not** retry when a query returns zero rows. Both loops, SQL and chart, are covered independently. |
 | **Chart call ordering** | The chart call is never made before the SQL succeeds, and is given the real result columns. Three failed chart attempts still return the table. |
@@ -479,6 +481,12 @@ Positive cases are equally required: ordinary `SELECT`s, CTEs (`WITH … SELECT`
 | **Schema introspection** | Builds with different dataset combinations, including one with no weather tables and one with no AADF tables, handled without error and without offering absent tables to the prompt. |
 | **Row cap** | An oversized result is truncated at the cap and reported as truncated, without a `LIMIT` being added to the displayed SQL. |
 | **Cancellation** | A running query is interrupted when Stop is pressed, and the connection is left usable for the next question. |
+
+### 11.5 The page
+
+The page is tested the way a person uses it. `tests/test_browser.py` drives an invisible Chromium, through Playwright, against the real `askcrossroads` command pointed at the local provider stub, and asserts on what is shown: text, visibility, colours and position. It covers every way a question can end, the two display rules, Stop, light and dark mode, and phone width. It fails if the page ever requests anything from outside the local server. `tests/test_page.py` checks without a browser that the page links only its own files, that the vendored chart libraries are the pinned bytes, and that the page's code names nothing from the schema and never writes HTML.
+
+The browser tests need Chromium for Playwright, a one-time download (`python -m playwright install chromium`). Without it they skip rather than fail, as the integration suite does without a key. Playwright is a Python package. It runs a private copy of Node.js internally, but the project itself still has no Node toolchain, no `package.json` and no build step.
 
 ---
 
@@ -506,7 +514,8 @@ askcrossroads/
 │       └── static/
 │           ├── index.html
 │           ├── app.js                  # Vanilla JS; Vega-Lite rendering
-│           └── style.css
+│           ├── style.css
+│           └── vendor/                 # Pinned Vega + Vega-Lite, with licences (no CDN)
 │
 ├── tests/
 │   ├── conftest.py                     # Shared synthetic Crossroads-UK fixture
@@ -515,6 +524,9 @@ askcrossroads/
 │   ├── test_query.py                   # Repair loops, row cap, cancellation, empty results
 │   ├── test_api.py                     # Route behaviour with a mocked model
 │   ├── test_server.py                  # The real command: refusal, localhost, Stop, Ctrl+C
+│   ├── test_page.py                    # The served page: local files only, pinned libraries
+│   ├── test_browser.py                 # The page in a real headless browser (Playwright)
+│   ├── real_command.py                 # Starts the installed command for tests
 │   ├── provider_stub.py                # Local stand-in for the Anthropic API (offline tests)
 │   └── integration/                    # Marked; real API calls, skipped by default (§11.2)
 │       ├── test_end_to_end.py          # A real question through the whole loop

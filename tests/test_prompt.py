@@ -343,6 +343,17 @@ def test_chart_prompt_preserves_row_order():
     assert '"sort": null' in _flat(prompt.CHART_SYSTEM_PROMPT)
 
 
+def test_chart_prompt_forbids_aggregating_the_answer_again():
+    # The SQL has already done the counting. A chart that counts the result's rows again
+    # draws every bar at 1, a believable picture that disagrees with the table beside it.
+    assert "plot that column's values directly" in _flat(prompt.CHART_SYSTEM_PROMPT)
+    assert 'no "aggregate" on any channel' in _flat(prompt.CHART_SYSTEM_PROMPT)
+    # Grouping a raw list of records (a histogram) is still allowed, and must stay so.
+    assert "Aggregate only when the result is a list of individual records" in _flat(
+        prompt.CHART_SYSTEM_PROMPT
+    )
+
+
 # --- The chart call's user message (spec §7) --------------------------------------------
 
 
