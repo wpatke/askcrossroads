@@ -227,11 +227,15 @@ def run_console_script(database_path, working_directory):
 
     A subprocess rather than a call to main(), because spec §1's promise is about what
     happens when a person types the command — an exit code and a message on stderr.
+
+    Only for files the command refuses: a valid build starts a server that runs until
+    Ctrl+C, which tests/test_server.py covers. `--no-browser` so that, if a refusal ever
+    stopped working, the test could not open a browser tab.
     """
     script = Path(sysconfig.get_path("scripts")) / "askcrossroads"
     assert script.exists(), f"console script not found at {script}; is the package installed?"
     return subprocess.run(
-        [str(script)],
+        [str(script), "--no-browser"],
         cwd=working_directory,
         capture_output=True,
         text=True,
@@ -262,10 +266,8 @@ def test_the_command_refuses_a_file_that_is_not_a_database(tmp_path):
     assert "Traceback" not in result.stderr
 
 
-def test_the_command_accepts_a_valid_build(crossroads_db, tmp_path):
-    result = run_console_script(crossroads_db, tmp_path)
-    assert result.returncode == 0, result.stderr
-    assert str(crossroads_db) in result.stdout
+# The command accepting a valid build, and reporting its provenance on the terminal, is
+# tested in tests/test_server.py: a valid build now starts a server rather than exiting.
 
 
 # --- Provenance (spec §2D) --------------------------------------------------------
@@ -342,11 +344,3 @@ def test_close_releases_the_connection(crossroads_db):
     database.close()
     with pytest.raises(Exception):
         database.connection.execute("SELECT 1")
-
-
-def test_the_command_reports_provenance_for_a_valid_build(crossroads_db, tmp_path):
-    """The end-to-end success path, as a user sees it."""
-    result = run_console_script(crossroads_db, tmp_path)
-    assert result.returncode == 0, result.stderr
-    assert "Built by Crossroads-UK" in result.stdout
-    assert "codebook rows" in result.stdout

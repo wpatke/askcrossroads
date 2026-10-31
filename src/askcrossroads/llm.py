@@ -138,6 +138,15 @@ def parse_sql_response(text):
     raise MalformedResponse("The model's reply had no usable `answerable` flag.")
 
 
+def _refuse_constant(name):
+    """json.loads calls this for NaN, Infinity and -Infinity, which are not valid JSON.
+
+    Python accepts them by default; a browser does not. A chart spec carrying one could not
+    be sent to the page, so it is treated as a malformed reply and repaired like any other.
+    """
+    raise ValueError(f"{name} is not valid JSON")
+
+
 def parse_chart_response(text):
     """Turn the chart call's reply into a Vega-Lite spec, or raise MalformedResponse.
 
@@ -158,7 +167,7 @@ def parse_chart_response(text):
         stripped = "\n".join(lines)
 
     try:
-        spec = json.loads(stripped)
+        spec = json.loads(stripped, parse_constant=_refuse_constant)
     except (TypeError, ValueError) as error:
         raise MalformedResponse("The chart reply was not valid JSON.") from error
 

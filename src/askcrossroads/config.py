@@ -32,6 +32,7 @@ PORT = 8000
 
 ENV_API_KEY = "ANTHROPIC_API_KEY"
 ENV_DATABASE = "ASKCROSSROADS_DB"
+ENV_PORT = "ASKCROSSROADS_PORT"   # optional; config.PORT when unset
 DEFAULT_ENV_FILE = ".env"
 
 # How a user obtains a valid database. Shown both when configuration is missing and when
@@ -73,10 +74,13 @@ class Config:
     ``api_key`` is marked ``repr=False`` deliberately: it must not appear in a traceback,
     a log line, or a debugger dump. It is held in memory for the session only and is
     never written anywhere.
+
+    ``port`` is the localhost port to listen on.
     """
 
     api_key: str = field(repr=False)
     database_path: Path
+    port: int = PORT
 
 
 def load_config(env_file=DEFAULT_ENV_FILE, environ=None):
@@ -102,7 +106,7 @@ def load_config(env_file=DEFAULT_ENV_FILE, environ=None):
             # dotenv_values yields None for a bare "KEY" line with no value; drop those.
             values.update({k: v for k, v in dotenv_values(path).items() if v is not None})
     # The real environment wins over the file.
-    for name in (ENV_API_KEY, ENV_DATABASE):
+    for name in (ENV_API_KEY, ENV_DATABASE, ENV_PORT):
         if environ.get(name):
             values[name] = environ[name]
 
@@ -123,7 +127,18 @@ def load_config(env_file=DEFAULT_ENV_FILE, environ=None):
         elif not os.access(database_path, os.R_OK):
             problems.append(f"{ENV_DATABASE} is {database_path}, which is not readable.")
 
+    # Optional. Something else on the machine often has 8000 already.
+    raw_port = (values.get(ENV_PORT) or "").strip()
+    port = PORT
+    if raw_port:
+        if raw_port.isdigit() and 1 <= int(raw_port) <= 65535:
+            port = int(raw_port)
+        else:
+            problems.append(
+                f"{ENV_PORT} is {raw_port!r}, which is not a port number between 1 and 65535."
+            )
+
     if problems:
         raise ConfigError("\n".join(problems) + "\n\n" + HOW_TO_CONFIGURE)
 
-    return Config(api_key=api_key, database_path=database_path)
+    return Config(api_key=api_key, database_path=database_path, port=port)

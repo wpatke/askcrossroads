@@ -178,6 +178,19 @@ def test_chart_spec_without_encoding_is_malformed(spec):
         llm.parse_chart_response(json.dumps(spec))
 
 
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_a_chart_with_a_non_json_constant_is_malformed(constant):
+    """Python's json accepts these; a browser does not. A spec carrying one could not be sent
+    to the page, so it must be repaired rather than cost the user their table."""
+    text = (
+        '{"mark": "bar", "encoding": {"x": {"field": "a", "scale": {"domainMax": '
+        + constant
+        + "}}}}"
+    )
+    with pytest.raises(llm.MalformedResponse):
+        llm.parse_chart_response(text)
+
+
 def test_chart_spec_is_returned_unedited():
     spec = {**CHART, "title": "Totals", "width": "container", "config": {"view": {}}}
     assert llm.parse_chart_response(json.dumps(spec)) == spec

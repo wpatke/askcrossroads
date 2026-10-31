@@ -43,28 +43,22 @@ def test_static_directory_exists():
     assert static.is_dir()
 
 
-def test_console_script_runs(tmp_path, crossroads_db):
-    """The installed `askcrossroads` command resolves and exits cleanly when configured.
+def test_console_script_runs():
+    """The installed `askcrossroads` command resolves and runs.
 
-    The script lives in the environment's scripts directory, which is inside the
-    virtual environment when the tests are run from one. A database path and an API
-    key are supplied explicitly (never the developer's own ambient environment or a
-    real credential) so this test proves the script is wired up correctly rather than
-    depending on whatever happens to be configured on the machine it runs on. The
-    database is a real synthetic build, not a placeholder file, since the script now
-    opens and validates it.
+    The script lives in the environment's scripts directory, which is inside the virtual
+    environment when the tests are run from one. `--help` exits before anything is loaded,
+    so this needs no database and no key. Starting the real server is covered in
+    tests/test_server.py.
     """
     script = Path(sysconfig.get_path("scripts")) / "askcrossroads"
     assert script.exists(), f"console script not found at {script}; is the package installed?"
-
-    database = crossroads_db
-    env = {
-        "PATH": os.environ.get("PATH", ""),
-        "ANTHROPIC_API_KEY": "test-key-not-a-real-credential",
-        "ASKCROSSROADS_DB": str(database),
-    }
     result = subprocess.run(
-        [str(script)], cwd=tmp_path, capture_output=True, text=True, timeout=60, env=env
+        [str(script), "--help"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={"PATH": os.environ.get("PATH", "")},
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() != ""
+    assert "--no-browser" in result.stdout

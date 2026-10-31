@@ -50,6 +50,7 @@ def test_bind_target_is_localhost_only():
 def test_environment_variable_names():
     assert config.ENV_API_KEY == "ANTHROPIC_API_KEY"
     assert config.ENV_DATABASE == "ASKCROSSROADS_DB"
+    assert config.ENV_PORT == "ASKCROSSROADS_PORT"
 
 
 # --- Loading ----------------------------------------------------------------------
@@ -183,6 +184,7 @@ def test_env_example_holds_placeholders_only():
     text = (REPO_ROOT / ".env.example").read_text()
     assert "ANTHROPIC_API_KEY=your-key-here" in text
     assert "ASKCROSSROADS_DB=" in text
+    assert "ASKCROSSROADS_PORT" in text
     # Nothing shaped like a real Anthropic key.
     assert not re.search(r"sk-ant-\S", text)
 
@@ -195,19 +197,46 @@ def test_main_exits_non_zero_when_not_configured(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ASKCROSSROADS_DB", raising=False)
-    assert main() == 1
+    monkeypatch.delenv("ASKCROSSROADS_PORT", raising=False)
+    # An explicit empty list: with no argument, argparse would read pytest's command line.
+    assert main([]) == 1
     captured = capsys.readouterr()
     assert "ANTHROPIC_API_KEY" in captured.err
     assert "ASKCROSSROADS_DB" in captured.err
 
 
-def test_main_exits_zero_when_configured(tmp_path, monkeypatch, capsys, crossroads_db):
-    database = crossroads_db
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("ANTHROPIC_API_KEY", FAKE_KEY)
-    monkeypatch.setenv("ASKCROSSROADS_DB", str(database))
-    assert main() == 0
-    captured = capsys.readouterr()
-    assert str(database) in captured.out
-    assert FAKE_KEY not in captured.out
-    assert FAKE_KEY not in captured.err
+# --- The port ---------------------------------------------------------------------
+
+
+def test_the_port_defaults_when_unset(db_file):
+    result = load_config(
+        env_file=None,
+        environ={"ANTHROPIC_API_KEY": FAKE_KEY, "ASKCROSSROADS_DB": str(db_file)},
+    )
+    assert result.port == config.PORT == 8000
+
+
+def test_the_port_can_be_set_in_the_environment_or_env_file(tmp_path, db_file):
+    environ = {"ANTHROPIC_API_KEY": FAKE_KEY, "ASKCROSSROADS_DB": str(db_file)}
+    assert (
+        load_config(env_file=None, environ={**environ, "ASKCROSSROADS_PORT": "8123"}).port
+        == 8123
+    )
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("ASKCROSSROADS_PORT=8124\n")
+    assert load_config(env_file=env_file, environ=environ).port == 8124
+
+
+@pytest.mark.parametrize("value", ["abc", "0", "65536", "-1", "80.5", "8000x"])
+def test_a_bad_port_is_refused_by_name(db_file, value):
+    with pytest.raises(ConfigError) as raised:
+        load_config(
+            env_file=None,
+            environ={
+                "ANTHROPIC_API_KEY": FAKE_KEY,
+                "ASKCROSSROADS_DB": str(db_file),
+                "ASKCROSSROADS_PORT": value,
+            },
+        )
+    assert "ASKCROSSROADS_PORT" in str(raised.value)

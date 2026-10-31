@@ -30,6 +30,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0",
+  # FastAPI's TestClient. Already installed by the anthropic SDK, listed because the tests
+  # import it directly.
+  "httpx2>=2.0",
 ]
 
 [project.scripts]

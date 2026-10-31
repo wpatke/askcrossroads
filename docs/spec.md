@@ -340,6 +340,8 @@ The database is a **path**, never a browser upload: these files run to gigabytes
 
 The consequence is that changing database means editing the configuration and restarting. For v1, where a user typically has one build, that is a fair trade for a page with one job (§13).
 
+The application listens on `127.0.0.1` only, on port 8000 unless `ASKCROSSROADS_PORT` says otherwise. The host is deliberately not configurable: a server that spends the user's API credit and shows their data must not be reachable from the rest of their network. On start it prints its address and opens it in the default browser; `askcrossroads --no-browser` prints the address only. Ctrl+C stops it.
+
 ### API key handling
 
 The key is held **in memory for the session only**. It is never written to disk by the application, never logged, never included in an error message, and never echoed back to the client — the `/api/ask` response contains no credential material, and provider errors are sanitised before they reach the browser.
@@ -349,13 +351,20 @@ An optional untracked `.env` may be read at startup for convenience. `.env` and 
 ### HTTP surface
 
 ```text
-GET  /api/database               -> {provenance, tables, years, coded_columns}
-POST /api/ask        {question}  -> {answerable, sql, sql_attempts[], columns, rows,
-                                     truncated, chart, chart_attempts[], explanation}
-POST /api/cancel                 -> interrupts the running query (§5)
+GET  /api/database               -> {provenance, tables, date_ranges, coded_columns}
+POST /api/ask        {question}  -> {status, answerable, sql, explanation, error,
+                                     sql_attempts[], columns, rows, truncated,
+                                     chart, chart_attempts[]}
+POST /api/cancel                 -> 204; interrupts the running question (§5)
 ```
 
 One request from the browser still means one question; the two model calls (§4) happen server-side and are reported separately. `sql_attempts[]` carries one entry per attempt with its SQL and its error, which is what §4.5 renders; `chart_attempts[]` is its counterpart, and `chart` is `null` when every attempt failed — the table is unaffected.
+
+Every way a question can end is an ordinary `200` response, told apart by `status`: `answered`, `declined` (§6A — `answerable` is `false` only here, with the reason in `explanation`), `failed` (every attempt failed, or the model could not be reached; the message is in `error`), or `cancelled` (Stop was pressed). Only requests the application cannot act on are HTTP errors, each with an `{"error": "..."}` body: `409` when a question is already running (§5), `422` for an empty question or a malformed request, and `500` for a bug, whose details go to the terminal rather than the browser.
+
+Result rows are arrays in column order. Values the browser cannot hold exactly are sent as strings: integers beyond JavaScript's safe range, and `NaN` and the infinities, which are not JSON and must not be shown as *Not recorded*. Dates and times are ISO 8601 strings.
+
+`date_ranges` lists the earliest and latest value of every dated column of every stored table, as computed on load (§6). It replaces a single `years` field an earlier draft specified: the file holds no single "years" value AskCrossroads may rely on (§2C), and one of those dated columns is the build timestamp, which would stretch any combined range to the day the file was built.
 
 ### Interface
 
@@ -505,8 +514,11 @@ askcrossroads/
 │   ├── test_database.py                # Convention detection, read-only enforcement
 │   ├── test_query.py                   # Repair loops, row cap, cancellation, empty results
 │   ├── test_api.py                     # Route behaviour with a mocked model
+│   ├── test_server.py                  # The real command: refusal, localhost, Stop, Ctrl+C
+│   ├── provider_stub.py                # Local stand-in for the Anthropic API (offline tests)
 │   └── integration/                    # Marked; real API calls, skipped by default (§11.2)
 │       ├── test_end_to_end.py          # A real question through the whole loop
+│       ├── test_api_live.py            # A real question over HTTP
 │       ├── test_answers.py             # The answer set: known answers, checked as numbers
 │       └── answers.yaml                # Questions, hand-written SQL, expected values
 │
