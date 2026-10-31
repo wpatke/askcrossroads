@@ -326,6 +326,19 @@ def test_sql_prompt_asks_for_one_statement():
     assert "exactly one statement" in _flat(prompt.SQL_SYSTEM_PROMPT)
 
 
+def test_sql_prompt_keeps_empty_time_periods():
+    # A month with nothing in it must come back as a row of 0, or a line chart joins its
+    # neighbours and shows an invented value where the real answer was zero.
+    flat = _flat(prompt.SQL_SYSTEM_PROMPT)
+    assert "including periods with nothing in them" in flat
+    # The two details that are easy to get wrong: COUNT(*) counts an empty period as 1,
+    # and an average of nothing is not 0.
+    assert "not COUNT(*)" in flat
+    assert "leave it NULL, never 0" in flat
+    # And no zeros invented outside the dates the build covers.
+    assert "Keep the list within the dates this build holds" in flat
+
+
 def test_chart_prompt_forbids_data():
     assert "must contain NO data" in _flat(prompt.CHART_SYSTEM_PROMPT)
     assert 'Do not include a "data" key' in _flat(prompt.CHART_SYSTEM_PROMPT)

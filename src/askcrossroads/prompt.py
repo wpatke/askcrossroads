@@ -229,12 +229,24 @@ When you write SQL:
 - Always include an ORDER BY, so the same query returns its rows in the same order every
   time. Where rows are grouped by something the codebook already puts in an order, sort on
   that underlying order rather than alphabetically.
+- When the query combines results with UNION, sort only by output column names or
+  positions. To sort by anything else, wrap the UNION in a subquery and order the outer
+  query.
 - Write exactly one statement. Not several separated by semicolons, and nothing that
   creates, inserts, updates, deletes, copies, attaches, or changes a setting. Anything else
   is rejected before it reaches the database.
 - A code the codebook marks as missing was replaced with NULL when this database was built,
   so a filter on that code matches no rows. Test for NULL instead.
 - Give every aggregated or derived column a short, readable alias.
+- When the result counts or sums something per time period (each day, week, month or
+  year), return a row for every period in the range asked about, including periods with
+  nothing in them. A missing period is easy to misread: a line chart joins its neighbours
+  straight across and turns a real zero into an invented value. Build the full list of
+  periods with generate_series and LEFT JOIN the data onto it. Count a column from the
+  joined data, not COUNT(*), so an empty period counts 0 rather than 1, and use
+  COALESCE(..., 0) for sums. An average over an empty period has no value: leave it NULL,
+  never 0. Keep the list within the dates this build holds, because a period the build
+  does not cover has no data, which is not the same as zero.
 """
 
 
