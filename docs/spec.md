@@ -370,9 +370,9 @@ Result rows are arrays in column order. Values the browser cannot hold exactly a
 
 ### Interface
 
-The UI is modern, simple and professional: a single column, generous whitespace, one system font stack, and no decorative colour. It is black and white, follows the computer's light or dark setting, and keeps colour for the chart and for a question that failed. Its content is the question box, the results table, the chart, the executed SQL, and the provenance line. Nothing competes with those five things. An answer reads top to bottom: the chart, then the table, which scrolls within its own box so a long result never pushes the SQL out of reach, then the SQL and its attempt history.
+The UI is modern, simple and professional: a single column, generous whitespace, one system font stack, and no decorative colour. It is black and white, follows the computer's light or dark setting unless the person picks one with the small moon/sun button in the top-right corner (a choice the browser remembers), and keeps colour for the chart and for a question that failed. Its content is the question box, the results table, the chart, the executed SQL, and the provenance line. Nothing competes with those five things. An answer reads top to bottom: the chart, then the table, which scrolls within its own box so a long result never pushes the SQL out of reach, then the SQL and its attempt history.
 
-There is one control: the **Ask** button below the question box, which becomes **Stop** while a question is in flight and reverts when it returns. That single button is the whole cancellation story — pressing Stop calls `/api/cancel`, which interrupts the running query (§5). It replaces the timeout that an earlier draft specified: how long a query is worth waiting for is a judgement about the question, and the person who asked it is the one qualified to make it. After Stop, the button stays disabled until the question has actually ended, so a new question can never collide with the old one. Enter asks; Shift+Enter starts a new line.
+There is one control for asking: the **Ask** button below the question box, which becomes **Stop** while a question is in flight and reverts when it returns. That single button is the whole cancellation story — pressing Stop calls `/api/cancel`, which interrupts the running query (§5). It replaces the timeout that an earlier draft specified: how long a query is worth waiting for is a judgement about the question, and the person who asked it is the one qualified to make it. After Stop, the button stays disabled until the question has actually ended, so a new question can never collide with the old one. Enter asks; Shift+Enter starts a new line.
 
 ---
 
@@ -484,7 +484,7 @@ Positive cases are equally required: ordinary `SELECT`s, CTEs (`WITH … SELECT`
 
 ### 11.5 The page
 
-The page is tested the way a person uses it. `tests/test_browser.py` drives an invisible Chromium, through Playwright, against the real `askcrossroads` command pointed at the local provider stub, and asserts on what is shown: text, visibility, colours and position. It covers every way a question can end, the two display rules, Stop, light and dark mode, and phone width. It fails if the page ever requests anything from outside the local server. `tests/test_page.py` checks without a browser that the page links only its own files, that the vendored chart libraries are the pinned bytes, and that the page's code names nothing from the schema and never writes HTML.
+The page is tested the way a person uses it. `tests/test_browser.py` drives an invisible Chromium, through Playwright, against the real `askcrossroads` command pointed at the local provider stub, and asserts on what is shown: text, visibility, colours and position. It covers every way a question can end, the two display rules, Stop, light and dark mode and the switch between them, and phone width. It fails if the page ever requests anything from outside the local server. `tests/test_page.py` checks without a browser that the page links only its own files, that the vendored chart libraries are the pinned bytes, and that the page's code names nothing from the schema and never writes HTML.
 
 The browser tests need Chromium for Playwright, a one-time download (`python -m playwright install chromium`). Without it they skip rather than fail, as the integration suite does without a key. Playwright is a Python package. It runs a private copy of Node.js internally, but the project itself still has no Node toolchain, no `package.json` and no build step.
 
@@ -513,6 +513,7 @@ askcrossroads/
 │       ├── query.py                    # Execute, repair loop, empty-result explanation
 │       └── static/
 │           ├── index.html
+│           ├── theme.js                # Light or dark, set before the page is drawn
 │           ├── app.js                  # Vanilla JS; Vega-Lite rendering
 │           ├── style.css
 │           └── vendor/                 # Pinned Vega + Vega-Lite, with licences (no CDN)

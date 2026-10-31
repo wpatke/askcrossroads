@@ -444,12 +444,14 @@ function chartColours() {
   };
 }
 
-// When the computer switches between light and dark, redraw the chart in the new colours.
-window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+// When the page switches between light and dark (the computer's setting changed, or the
+// person pressed the moon/sun button), theme.js changes the page's data-theme. Redraw the
+// chart in the new colours when it does.
+new MutationObserver(() => {
   if (lastChart) {
     drawChart(lastChart.spec, lastChart.columns, lastChart.rows);
   }
-});
+}).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
 // --- The line under the title -----------------------------------------------------------
 

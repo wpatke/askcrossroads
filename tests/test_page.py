@@ -22,10 +22,13 @@ from conftest import FakeModel
 STATIC = Path(app.__file__).parent / "static"
 
 # The page's own files. Vendored libraries, if any, are checked separately.
-OWN_FILES = ["index.html", "app.js", "style.css"]
+OWN_FILES = ["index.html", "theme.js", "app.js", "style.css"]
+
+# The page's own scripts.
+OWN_SCRIPTS = ["theme.js", "app.js"]
 
 # Every file index.html links to, in the order it links them.
-LINKED = ["style.css", "vendor/vega.min.js", "vendor/vega-lite.min.js", "app.js"]
+LINKED = ["style.css", "theme.js", "vendor/vega.min.js", "vendor/vega-lite.min.js", "app.js"]
 
 # The vendored chart libraries and their licences, byte for byte. A change here must be a
 # deliberate update (see static/vendor/README.md), never an accident.
@@ -41,20 +44,30 @@ SCHEMA_WORDS = re.compile(r"collision|weather|aadf|stats19|vehicle|casualty", re
 
 
 class _PageParts(HTMLParser):
-    """Collects every element id and every src/href value in a page."""
+    """Collects every element id, every src/href value, and the scripts loaded in <head>."""
 
     def __init__(self):
         super().__init__()
         self.ids = set()
         self.links = []
+        self.head_scripts = []
+        self._in_head = False
 
     def handle_starttag(self, tag, attrs):
         attributes = dict(attrs)
+        if tag == "head":
+            self._in_head = True
+        if tag == "script" and self._in_head:
+            self.head_scripts.append(attributes.get("src"))
         if attributes.get("id"):
             self.ids.add(attributes["id"])
         for name in ("src", "href"):
             if attributes.get(name):
                 self.links.append(attributes[name])
+
+    def handle_endtag(self, tag):
+        if tag == "head":
+            self._in_head = False
 
 
 @pytest.fixture
@@ -88,12 +101,19 @@ def test_every_linked_file_is_served(client, page):
         assert expected in response.headers["content-type"], link
 
 
-def test_the_page_has_every_part_the_script_uses(page):
-    script = (STATIC / "app.js").read_text()
-    wanted = set(re.findall(r'getElementById\("([^"]+)"\)', script))
-    assert wanted, "app.js should look up the page's parts by id"
-    missing = wanted - page.ids
-    assert not missing, f"app.js looks for ids the page does not have: {sorted(missing)}"
+def test_the_page_has_every_part_the_scripts_use(page):
+    for name in OWN_SCRIPTS:
+        script = (STATIC / name).read_text()
+        wanted = set(re.findall(r'getElementById\("([^"]+)"\)', script))
+        assert wanted, f"{name} should look up the page's parts by id"
+        missing = wanted - page.ids
+        assert not missing, f"{name} looks for ids the page does not have: {sorted(missing)}"
+
+
+def test_the_theme_is_set_before_the_page_is_drawn(page):
+    # In <head>, so light or dark is decided before anything appears: no flash of the
+    # wrong colours. The chart libraries and app.js load at the end of the page as before.
+    assert page.head_scripts == ["theme.js"]
 
 
 def test_the_page_names_nothing_from_the_schema():
@@ -102,10 +122,11 @@ def test_the_page_names_nothing_from_the_schema():
         assert found is None, f"{name} names {found.group(0)!r}; it must be discovered (spec §2C)"
 
 
-def test_the_script_never_writes_html():
-    script = (STATIC / "app.js").read_text()
-    for writer in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write"):
-        assert writer not in script, f"app.js uses {writer}; use textContent instead"
+def test_the_scripts_never_write_html():
+    for name in OWN_SCRIPTS:
+        script = (STATIC / name).read_text()
+        for writer in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write"):
+            assert writer not in script, f"{name} uses {writer}; use textContent instead"
 
 
 def test_the_styles_load_nothing():

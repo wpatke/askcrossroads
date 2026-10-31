@@ -1,8 +1,10 @@
-/* AskCrossroads: one column, black and white, following the computer's light or dark setting.
-   Colour is used only where it means something: the chart, and red for a failed question. */
+/* AskCrossroads: one column, black and white, in light or dark. theme.js sets
+   data-theme="light" or "dark" on the page: the computer's own setting, unless the person
+   chose with the moon/sun button. Colour is used only where it means something: the chart,
+   and red for a failed question. */
 
 :root {
-  color-scheme: light dark;   /* scrollbars and form controls match the mode too */
+  color-scheme: light;   /* scrollbars and form controls match the mode too */
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --bg: #ffffff;
@@ -16,17 +18,16 @@
   --radius: 8px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0a0a0a;
-    --surface: #171717;
-    --text: #ededed;
-    --muted: #a1a1a1;
-    --border: #2e2e2e;
-    --button-bg: #ededed;
-    --button-text: #0a0a0a;
-    --danger: #f97066;
-  }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0a0a0a;
+  --surface: #171717;
+  --text: #ededed;
+  --muted: #a1a1a1;
+  --border: #2e2e2e;
+  --button-bg: #ededed;
+  --button-text: #0a0a0a;
+  --danger: #f97066;
 }
 
 * {
@@ -77,6 +78,42 @@ h2 {
 
 #provenance {
   margin: 0.25rem 0 0;
+}
+
+/* The title on the left, the light/dark button in the top-right corner. */
+.title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+/* A quiet, icon-only button: no fill until the pointer is over it. */
+.icon-button {
+  display: inline-flex;
+  padding: 0.5rem;
+  background: transparent;
+  color: var(--muted);
+}
+
+.icon-button:hover:not(:disabled) {
+  opacity: 1;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.icon-button svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The moon in light mode (press for dark), the sun in dark mode (press for light). */
+:root[data-theme="dark"] .moon,
+:root:not([data-theme="dark"]) .sun {
+  display: none;
 }
 
 /* --- The question box and the one button --- */

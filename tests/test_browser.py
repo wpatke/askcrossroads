@@ -825,3 +825,86 @@ def test_the_shape_check_catches_a_chart_that_counts_the_rows_again(open_page, s
     assert {shape["height"] for shape in shapes} == {shapes[0]["height"]}
     # ...while the table beside it still says 2, 2, 1, 1.
     assert [row[1] for row in table_cells(page)] == ["2", "2", "1", "1"]
+
+
+# --- The light/dark button -------------------------------------------------------------------
+
+LIGHT_BACKGROUND = "rgb(255, 255, 255)"
+DARK_BACKGROUND = "rgb(10, 10, 10)"
+
+
+def background(page):
+    return page.evaluate("getComputedStyle(document.body).backgroundColor")
+
+
+def saved_theme(page):
+    return page.evaluate("localStorage.getItem('askcrossroads-theme')")
+
+
+def test_the_theme_button_switches_between_light_and_dark(open_page):
+    page = open_page(color_scheme="light")
+    button = page.locator("#theme-toggle")
+    # In light mode it shows the moon, and says what pressing it will do.
+    expect(button).to_have_attribute("aria-label", "Switch to dark mode")
+    expect(button.locator(".moon")).to_be_visible()
+    expect(button.locator(".sun")).to_be_hidden()
+    assert background(page) == LIGHT_BACKGROUND
+
+    button.click()
+    expect(page.locator("html")).to_have_attribute("data-theme", "dark")
+    assert background(page) == DARK_BACKGROUND
+    expect(button).to_have_attribute("aria-label", "Switch to light mode")
+    expect(button.locator(".sun")).to_be_visible()
+    expect(button.locator(".moon")).to_be_hidden()
+
+    # The choice is remembered: still dark after the page is reloaded.
+    page.reload()
+    expect(page.locator("#provenance")).to_contain_text("Crossroads-UK")
+    assert background(page) == DARK_BACKGROUND
+    assert saved_theme(page) == "dark"
+
+    # Choosing the computer's own mode again forgets the choice, so the page goes back to
+    # following the computer.
+    page.locator("#theme-toggle").click()
+    assert background(page) == LIGHT_BACKGROUND
+    assert saved_theme(page) is None
+
+
+def test_a_chosen_theme_wins_over_the_computers_setting(open_page):
+    page = open_page(color_scheme="dark")
+    button = page.locator("#theme-toggle")
+    expect(button).to_have_attribute("aria-label", "Switch to light mode")
+    assert background(page) == DARK_BACKGROUND
+
+    button.click()
+    assert background(page) == LIGHT_BACKGROUND
+    assert saved_theme(page) == "light"
+
+    # The computer changes its own setting, and back again: the person's choice stands.
+    page.emulate_media(color_scheme="light")
+    page.emulate_media(color_scheme="dark")
+    assert background(page) == LIGHT_BACKGROUND
+
+
+def test_the_page_follows_the_computer_until_a_choice_is_made(open_page):
+    page = open_page(color_scheme="light")
+    page.emulate_media(color_scheme="dark")
+    expect(page.locator("html")).to_have_attribute("data-theme", "dark")
+    expect(page.locator("#theme-toggle")).to_have_attribute("aria-label", "Switch to light mode")
+    assert background(page) == DARK_BACKGROUND
+
+
+def test_the_theme_button_redraws_the_chart_and_keeps_the_answer(open_page, server):
+    command, provider = server
+    provider.reply_sql(GOOD_SQL)
+    provider.reply_chart(CHART)
+    page = open_page(color_scheme="light")
+    ask(page)
+    expect(page.locator('#chart svg text[fill="#666666"]').first).to_be_attached()
+
+    page.click("#theme-toggle")
+    expect(page.locator('#chart svg text[fill="#a1a1a1"]').first).to_be_attached()
+    assert page.locator('#chart svg text[fill="#666666"]').count() == 0
+    # Switching colours changes nothing else: the answer is still on the page.
+    assert len(table_cells(page)) == 4
+    expect(page.locator("#sql")).to_have_text(GOOD_SQL)
