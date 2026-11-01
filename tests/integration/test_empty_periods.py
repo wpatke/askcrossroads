@@ -23,8 +23,18 @@ from live_fixtures import client, database, settings  # noqa: F401  (pytest fixt
 
 pytestmark = pytest.mark.integration
 
-# The build these numbers were worked out on.
-PINNED_VERSION = "0.9.0"
+# The build these numbers were worked out on. To make it yourself, install crossroads-uk
+# 1.0.4 with its weather extra (pip install "crossroads-uk[weather]==1.0.4"; ERA5 also needs
+# a free Copernicus CDS key), then run:
+#
+#   import crossroads as cr
+#   client = cr.init_engine(database_path="crossroads_2023_complete.db")
+#   client.build(datasets=["stats19", "era5_weather", "aadf", "bank_holidays"],
+#                years=[2023], boundary_mode="snapshot")
+#   client.close()
+#
+# The `crossroads` wizard gives the same build if given the same answers.
+PINNED_VERSION = "1.0.4"
 PINNED_SCHEMA = 4
 PINNED_YEARS = [2023]
 
