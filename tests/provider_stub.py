@@ -35,6 +35,20 @@ def _message(text):
     }
 
 
+def _api_key(headers):
+    """The API key the client sent, or None.
+
+    anthropic 1.x sends it in an "x-api-key" header. 2.x sends "Authorization: Bearer <key>"
+    instead. Accept either, so the tests work whichever SDK version is installed.
+    """
+    if headers.get("x-api-key"):
+        return headers.get("x-api-key")
+    authorization = headers.get("authorization") or ""
+    if authorization.startswith("Bearer "):
+        return authorization[len("Bearer "):]
+    return None
+
+
 def _error(status, message):
     kind = "authentication_error" if status == 401 else "invalid_request_error"
     return {"type": "error", "error": {"type": kind, "message": message}}
@@ -53,7 +67,7 @@ class ProviderStub:
             def do_POST(self):
                 length = int(self.headers.get("content-length") or 0)
                 body = json.loads(self.rfile.read(length) or b"{}")
-                status, payload, delay = stub._take(self.path, self.headers.get("x-api-key"), body)
+                status, payload, delay = stub._take(self.path, _api_key(self.headers), body)
                 if delay:
                     time.sleep(delay)
                 data = json.dumps(payload).encode()
