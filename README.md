@@ -1,7 +1,15 @@
 # AskCrossroads
 
-Ask questions of UK public data in plain English (road collisions, weather, traffic counts and
-more) and get back a chart, a table, and the exact SQL that produced them.
+[![tests](https://github.com/wpatke/askcrossroads/actions/workflows/tests.yml/badge.svg)](https://github.com/wpatke/askcrossroads/actions/workflows/tests.yml)
+
+Ask questions of UK public data (road collisions, weather, traffic counts and more) in plain
+English and get back a chart, a data table, and the SQL that produced them. AskCrossroads
+pairs an AI model with a [Crossroads-UK](https://github.com/wpatke/crossroads-uk) database to
+make exploring the data and understanding what's in it easy, even for non-technical users.
+
+In the screenshot below, the question is: "On average, how many collisions happened in each
+hour of the day on a weekday, compared with a day at the weekend? Show it as a line chart with
+one line for weekdays and one for weekends."
 
 <p align="center">
 <img src="docs/assets/hero-hours.png" width="560" alt="AskCrossroads answering: On average, how many collisions happened in each hour of the day on a weekday, compared with a day at the weekend? A line chart shows weekdays peaking at 8am (23.1 collisions a day) and 5pm (28.5 a day), while weekends peak from midday to mid-afternoon at about 17 to 18 a day and are higher late at night. Below it are the results table, a note that an AI wrote the query, and the SQL that ran.">
@@ -9,40 +17,38 @@ more) and get back a chart, a table, and the exact SQL that produced them.
 
 ## Why AskCrossroads?
 
-UK public data is free and detailed, but in practice much of it is closed to anyone who does
-not write SQL. AskCrossroads removes that barrier. You type a question; a language model
-writes the SQL; the query runs read-only against your own database on your own machine; and
-you see the answer as a chart and a table, with the SQL shown underneath so nothing is
-hidden.
+UK public data is free and detailed, but in practice much of it is out of reach unless
+you write SQL. AskCrossroads removes that barrier.
+
+An AI model does the technical part. You type a question; the model writes a database query
+(in SQL); the query runs against your database; and you see the answer as a chart and a table.
+The full SQL statement is also included so everything is reproducible.
 
 It reads databases built by [Crossroads-UK](https://github.com/wpatke/crossroads-uk), which
 downloads separate public datasets and joins them into a single local DuckDB file. Today
 those are the Department for Transport's STATS19 road-collision records and traffic counts,
-ERA5-Land weather, ONS boundaries and bank holidays. That is the crossroads in the name: a
-question that crosses from one dataset to another, such as collisions by weather or around
-the clocks changing, is as easy to ask as a question about one.
+ERA5-Land weather, ONS boundaries and bank holidays. That is the crossroads in the name: it
+is easy to explore questions that cross from one dataset to another, such as collisions by
+air temperature or rainfall, or collisions on bank holidays.
 
-Road safety is where it starts, not where it stops. AskCrossroads reads the tables, and what
-their codes mean, from the database itself rather than having them built in. So when
-Crossroads-UK adds a dataset, AskCrossroads is designed to answer questions about it with no
-change to its own code.
+Road safety is where it starts, not where it stops. When Crossroads-UK adds a dataset,
+AskCrossroads is designed to answer questions about it too.
 
-Nothing is hosted. The database never leaves your computer. What is sent to the Anthropic API
-is your question, the database's schema and codebook (the table of what each code means),
-and, to choose a chart, the result's column names and a handful of sample rows.
+Nothing is hosted. The database never leaves your computer. What is sent to the AI model
+(Anthropic's Claude, through its API) is your question, the database's schema and codebook
+(the table of what each code means), and, for charting, the result's column names and a
+handful of sample rows.
 
 ## What it looks like
 
 Every example below was asked of the same 2023 Crossroads-UK build. Each number was checked
 against SQL written by hand, and each question was asked twice with identical results.
 
-**Ice on the road, against the air temperature.** The police record the road surface at each
-collision; the ERA5-Land weather data gives the air temperature at that place and hour. They
-are separate sources, and they agree: of the 1,391 collisions on frost or ice that have a
-temperature (70 have none in the weather data), 83% happened below 2°C, peaking between −2
-and 0°C. For all collisions, the median is 11.6°C. The few above 5°C are not necessarily
-errors: ice can linger after the air warms, and the weather data is an average over a grid
-square several kilometres across, not a reading at the roadside.
+**Ice on the road, against the air temperature.** The police record the road surface; the
+ERA5-Land weather data gives the air temperature at that place and hour. The two sources
+agree: of the 1,391 frost or ice collisions with a temperature, 83% happened below 2°C,
+peaking between −2 and 0°C (the median for all collisions is 11.6°C). The few above 5°C are
+plausible: ice lingers, and the temperature is a grid-square average, not a roadside reading.
 
 <img src="docs/assets/frost-ice.png" alt="Question: For collisions where the police recorded the road surface as frost or ice, what was the air temperature at the time, from the weather data? A bar chart of collisions in 1-degree bands peaks between minus 2 and 0 degrees Celsius, with 83% of the 1,391 collisions below 2 degrees and only a handful above 5 degrees.">
 
@@ -103,18 +109,20 @@ the app links to from the build details at the top of the page.
   Crossroads-UK build. The integration suite asks each one the ordinary way and checks the
   numbers that come back.
 
-AskCrossroads is for exploring the data, not a source of citable figures. If you want to
-rely on a number, take the SQL it shows you and check it yourself against the same build.
+AskCrossroads is most helpful as an exploratory tool. The AI's SQL can be wrong, so treat its
+answers as a starting point. Before citing a figure, check the SQL it shows, then cite that
+query along with the build details shown at the top of the page (the database's
+`crossroads_meta` stamp) so others can reproduce it.
 
 ## Install from source
 
-AskCrossroads is not published on PyPI. It needs Python 3.11 or newer.
+AskCrossroads is not yet published on PyPI. It needs Python 3.11 or newer.
 
 ```bash
 git clone https://github.com/wpatke/askcrossroads.git
 cd askcrossroads
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate        # on Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
@@ -142,7 +150,7 @@ above were made with Crossroads-UK 1.0.4, for 2023, with the `stats19`, `era5_we
 Copy the example settings file:
 
 ```bash
-cp .env.example .env
+cp .env.example .env              # on Windows: copy .env.example .env
 ```
 
 Then edit `.env`:
@@ -185,7 +193,9 @@ for what that comes to.
 These are left out on purpose, not by oversight:
 
 - **Crossroads-UK databases only.** It is not a general tool for asking questions of any
-  database.
+  database. It reads the tables, and what their codes mean, from the database itself rather
+  than having them built in, so a new Crossroads-UK dataset needs no change to AskCrossroads'
+  own code.
 - **No curated example questions.** Examples written in advance would assume datasets and
   years that your build may not have.
 - **One database per run.** Switching to another database means editing `.env` and
