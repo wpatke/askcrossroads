@@ -5,11 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "askcrossroads"
 version = "0.1.0"
-description = "Ask questions of a Crossroads-UK road-safety database in plain English."
+description = "Ask questions of UK public data in a Crossroads-UK database, in plain English."
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [{ name = "wpatke" }]
-keywords = ["uk", "road-safety", "stats19", "duckdb", "natural-language", "sql"]
+keywords = ["uk", "public-data", "road-safety", "stats19", "weather", "duckdb", "natural-language", "sql"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",

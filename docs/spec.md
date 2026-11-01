@@ -2,7 +2,7 @@
 
 AskCrossroads is a locally-run web application that turns a question written in ordinary English into SQL, runs it against a Crossroads-UK DuckDB database, and returns a results table and a chart.
 
-UK road-safety data is public, detailed, and effectively closed to anyone who does not write SQL. A Crossroads-UK build puts thirty years of collisions, weather, boundaries, and traffic counts into a single local file — and then asks the reader to express their question as a join. AskCrossroads removes that requirement. The question is asked in English; the SQL is written by a language model, executed, and shown.
+UK public data (road collisions, weather, traffic counts and more) is free, detailed, and effectively closed to anyone who does not write SQL. A Crossroads-UK build puts thirty years of collisions, weather, boundaries, and traffic counts into a single local file — and then asks the reader to express their question as a join. AskCrossroads removes that requirement. The question is asked in English; the SQL is written by a language model, executed, and shown.
 
 Nothing is hosted. The user clones the repository, runs it on their own machine, and configures the path to their own `.db` file and their own Anthropic API key. Their data never leaves the machine: the only thing sent anywhere is the question, together with the database's schema and codebook, to the Anthropic API.
 
@@ -309,7 +309,7 @@ If all three attempts fail, **the table is still shown**. A chart is an enhancem
 
 The database is deterministic. The SQL is deterministic. The language model is not, and that is fine.
 
-AskCrossroads is a tool for **browsing** road-safety data and getting a feel for what is in it — not a pipeline for producing verifiable facts to publish. The same question asked twice may produce two different queries, both correct. Nothing here depends on it not doing that, and no attempt is made to pin sampling: the model runs on default settings (§10).
+AskCrossroads is a tool for **browsing** the data in a Crossroads-UK build and getting a feel for what is in it — not a pipeline for producing verifiable facts to publish. The same question asked twice may produce two different queries, both correct. Nothing here depends on it not doing that, and no attempt is made to pin sampling: the model runs on default settings (§10).
 
 What the tool does owe the user is visibility into what actually produced the numbers on screen. So the executed SQL is always displayed, never tucked behind a disclosure, alongside the Crossroads-UK provenance line — version, schema, build parameters, build time — read from `crossroads_meta`. Anyone who wants to check a figure, or use it as the starting point for real analysis, can take that query and run it themselves against the same build and get the same table.
 

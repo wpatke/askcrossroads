@@ -1,4 +1,4 @@
-"""AskCrossroads: ask questions of a Crossroads-UK road-safety database in plain English."""
+"""AskCrossroads: ask questions of UK public data in a Crossroads-UK database, in plain English."""
 
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 

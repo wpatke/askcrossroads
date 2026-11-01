@@ -277,7 +277,7 @@ def serve(application, listener, runner):
 def _parse_arguments(argv):
     parser = argparse.ArgumentParser(
         prog="askcrossroads",
-        description="Ask questions of a Crossroads-UK road-safety database in plain English.",
+        description="Ask questions of UK public data in a Crossroads-UK database, in plain English.",
     )
     parser.add_argument(
         "--no-browser",
