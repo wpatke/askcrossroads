@@ -1,0 +1,43 @@
+name: tests
+
+# Run on pushes to main and on every pull request.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # Run the offline suite on all three operating systems, so a problem that only shows up
+    # on Windows or macOS is caught here rather than on a user's machine.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Let every combination finish, so one failure doesn't hide the others.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install (with dev extra)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # The browser tests skip themselves when Chromium is missing. Install it so they
+      # actually run here, rather than passing by being skipped.
+      - name: Install Chromium for the browser tests
+        run: python -m playwright install --with-deps chromium
+
+      # The integration tests are deselected by default (see pyproject addopts) and are not
+      # run here: they need an Anthropic API key, a real Crossroads-UK build, and cost money
+      # on every run. Run them locally with: pytest -m integration
+      - name: Run the offline test suite
+        run: python -m pytest -q
