@@ -38,6 +38,8 @@ dev = [
   # installing, download its browser once with:
   #   .venv/bin/python -m playwright install chromium
   "playwright>=1.48",
+  # Reads tests/integration/answers.yaml, the answer set's questions and expected numbers.
+  "pyyaml>=6.0",
 ]
 
 [project.scripts]

@@ -19,24 +19,11 @@ import pytest
 
 from askcrossroads.safety import validate_sql
 
-from live_fixtures import client, database, settings  # noqa: F401  (pytest fixtures)
+# `pinned` is the configured build, or a skip if it is not the one these numbers were worked
+# out on. The pinned build's details, and how to make it, are in live_fixtures.py.
+from live_fixtures import client, database, pinned, settings  # noqa: F401  (pytest fixtures)
 
 pytestmark = pytest.mark.integration
-
-# The build these numbers were worked out on. To make it yourself, install crossroads-uk
-# 1.0.4 with its weather extra (pip install "crossroads-uk[weather]==1.0.4"; ERA5 also needs
-# a free Copernicus CDS key), then run:
-#
-#   import crossroads as cr
-#   client = cr.init_engine(database_path="crossroads_2023_complete.db")
-#   client.build(datasets=["stats19", "era5_weather", "aadf", "bank_holidays"],
-#                years=[2023], boundary_mode="snapshot")
-#   client.close()
-#
-# The `crossroads` wizard gives the same build if given the same answers.
-PINNED_VERSION = "1.0.4"
-PINNED_SCHEMA = 4
-PINNED_YEARS = [2023]
 
 QUESTION = "How many fatal collisions happened each month in Wales?"
 
@@ -54,23 +41,6 @@ ORDER BY month
 
 # January to December 2023. February is the empty month.
 EXPECTED = [5, 0, 7, 8, 9, 9, 10, 8, 11, 6, 7, 10]
-
-
-@pytest.fixture(scope="module")
-def pinned(database):
-    """The configured build, if it is the one the expected numbers were worked out on."""
-    provenance = database.context.provenance
-    built = (
-        provenance.crossroads_version,
-        provenance.schema_version,
-        provenance.parameters.get("years"),
-    )
-    if built != (PINNED_VERSION, PINNED_SCHEMA, PINNED_YEARS):
-        pytest.skip(
-            f"the expected numbers are for Crossroads-UK {PINNED_VERSION}, schema "
-            f"{PINNED_SCHEMA}, years {PINNED_YEARS}; this build is {built}"
-        )
-    return database
 
 
 def test_the_hand_written_answer_still_holds(pinned):

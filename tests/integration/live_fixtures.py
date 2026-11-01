@@ -17,6 +17,28 @@ from askcrossroads.database import Database, DatabaseError
 
 ENV_TEST_DB = "ASKCROSSROADS_TEST_DB"
 
+# The one build that hand-worked expected numbers belong to: the answer set (test_answers.py)
+# and test_empty_periods.py. Tests that use the `pinned` fixture skip on any other build,
+# because checking these numbers against other data would compare them with figures from a
+# different database (spec §11.2).
+#
+# To make this build yourself, install crossroads-uk 1.0.4 with its weather extra
+# (pip install "crossroads-uk[weather]==1.0.4"; ERA5 also needs a free Copernicus CDS key),
+# then run:
+#
+#   import crossroads as cr
+#   client = cr.init_engine(database_path="crossroads_2023_complete.db")
+#   client.build(datasets=["stats19", "era5_weather", "aadf", "bank_holidays"],
+#                years=[2023], boundary_mode="snapshot")
+#   client.close()
+#
+# The `crossroads` wizard gives the same build if given the same answers.
+PINNED_VERSION = "1.0.4"
+PINNED_SCHEMA = 4
+PINNED_DATASETS = ["aadf", "bank_holidays", "era5_weather", "stats19"]
+PINNED_YEARS = [2023]
+PINNED_BOUNDARY_MODE = "snapshot"
+
 
 @pytest.fixture(scope="module")
 def settings():
@@ -57,3 +79,30 @@ def database(settings):
 @pytest.fixture(scope="module")
 def client(settings):
     return llm.AnthropicClient.from_config(settings)
+
+
+@pytest.fixture(scope="module")
+def pinned(database):
+    """The configured build, if it is the one the expected numbers were worked out on."""
+    provenance = database.context.provenance
+    parameters = provenance.parameters
+    built = (
+        provenance.crossroads_version,
+        provenance.schema_version,
+        sorted(parameters.get("datasets") or []),
+        parameters.get("years"),
+        parameters.get("boundary_mode"),
+    )
+    wanted = (
+        PINNED_VERSION,
+        PINNED_SCHEMA,
+        PINNED_DATASETS,
+        PINNED_YEARS,
+        PINNED_BOUNDARY_MODE,
+    )
+    if built != wanted:
+        pytest.skip(
+            "the expected numbers are for Crossroads-UK {} (schema {}, datasets {}, years {}, "
+            "{} boundaries); this build is {}".format(*wanted, built)
+        )
+    return database

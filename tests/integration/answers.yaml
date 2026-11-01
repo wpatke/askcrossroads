@@ -1,0 +1,191 @@
+# The answer set (spec §11.2): questions in plain English, each with an answer worked out by
+# hand in SQL against the pinned build. The build's details, and how to make it, are in
+# live_fixtures.py; test_answers.py skips on any other build.
+#
+# The expected numbers were written by a person from the `sql` beside them, never copied from
+# what the model returned. If the model and this file disagree, read the `sql` to decide
+# which is right.
+#
+# Each entry has:
+#   question  asked exactly as a user would type it
+#   shapes    which of the spec's required shapes it covers (test_answers.py checks that
+#             every one is covered by at least one entry):
+#               coded_group       a total grouped by a coded column, so a label is needed
+#               three_table_join  a join across collisions, vehicles and casualties
+#               date_range        a filter on a date range
+#               no_rows           the true answer is no rows at all
+#               declined          this build cannot answer it, so it must be declined
+#   sql       the hand-written query (absent for a question that must be declined)
+#   expected  the numbers the answer must contain, in any order: one per result row. A
+#             whole number must match exactly; a decimal must be within 1%, so a rounded
+#             answer still counts. [] means no rows. `declined` means the model must decline.
+#   note      why the expected answer is what it is, and the mistake the question can catch
+
+- question: How many collisions were there at each severity level?
+  shapes: [coded_group]
+  sql: |
+    SELECT collision_severity, COUNT(*) AS collisions
+    FROM collisions
+    GROUP BY collision_severity
+    ORDER BY collision_severity
+  # Fatal, Serious, Slight.
+  expected: [1522, 23438, 79298]
+  note: Every collision has a severity, so there is no missing group to include or leave out.
+
+- question: How many collisions happened on each day of the week?
+  shapes: [coded_group]
+  sql: |
+    SELECT day_of_week, COUNT(*) AS collisions
+    FROM collisions
+    GROUP BY day_of_week
+    ORDER BY day_of_week
+  # Sunday to Saturday.
+  expected: [11699, 14288, 15431, 15749, 15791, 17118, 14182]
+  note: The codebook numbers the days from Sunday (1), not Monday.
+
+- question: How many casualties were there in each casualty class?
+  shapes: [coded_group]
+  sql: |
+    SELECT casualty_class, COUNT(*) AS casualties
+    FROM casualties
+    GROUP BY casualty_class
+    ORDER BY casualty_class
+  # Driver or rider, Passenger, Pedestrian.
+  expected: [87417, 26297, 19263]
+  note: Counts casualties, not collisions. Every casualty has a class.
+
+- question: How many collisions happened in darkness with no street lighting?
+  shapes: []
+  sql: |
+    SELECT COUNT(*) AS collisions
+    FROM collisions
+    WHERE light_conditions = 6
+  expected: [5628]
+  note: >-
+    Code 6 is "Darkness - no lighting". The model has to find the code from its label;
+    "lights unlit" (5) and "lighting unknown" (7) are different conditions.
+
+- question: Which police force recorded the most collisions, and how many did it record?
+  shapes: []
+  sql: |
+    SELECT police_force, COUNT(*) AS collisions
+    FROM collisions
+    GROUP BY police_force
+    ORDER BY collisions DESC
+    LIMIT 1
+  # Metropolitan Police (code 1).
+  expected: [22740]
+  note: Only one force is asked for, so the answer is one row.
+
+- question: >-
+    How many casualties were there in collisions on 20 mph roads that involved at least one
+    pedal cycle?
+  shapes: [three_table_join]
+  sql: |
+    SELECT COUNT(*) AS casualties
+    FROM casualties
+    JOIN collisions USING (accident_index)
+    WHERE collisions.speed_limit = 20
+      AND EXISTS (
+        SELECT 1
+        FROM vehicles
+        WHERE vehicles.accident_index = collisions.accident_index
+          AND vehicles.vehicle_type = 1
+      )
+  expected: [4648]
+  note: >-
+    Vehicle type 1 is "Pedal cycle". A plain three-way join gives 4793, because every casualty
+    in a collision with two pedal cycles is counted twice. Each casualty must be counted once.
+
+- question: How many people were killed in collisions that happened in darkness with no street lighting?
+  shapes: []
+  sql: |
+    SELECT COUNT(*) AS killed
+    FROM casualties
+    JOIN collisions USING (accident_index)
+    WHERE casualties.casualty_severity = 1
+      AND collisions.light_conditions = 6
+  expected: [265]
+  note: >-
+    People killed are casualties with severity 1 (Fatal), not fatal collisions: one fatal
+    collision can also have survivors, or more than one death.
+
+- question: How many collisions happened between 1 June and 31 August 2023?
+  shapes: [date_range]
+  sql: |
+    SELECT COUNT(*) AS collisions
+    FROM collisions
+    WHERE datetime_local >= TIMESTAMP '2023-06-01'
+      AND datetime_local < TIMESTAMP '2023-09-01'
+  expected: [27329]
+  note: >-
+    31 August is included. datetime_local holds a time as well as a date, so
+    BETWEEN '2023-06-01' AND '2023-08-31' stops at midnight on the 31st and gives 27060,
+    missing almost the whole last day.
+
+- question: How many fatal collisions were there in December 2023?
+  shapes: [date_range]
+  sql: |
+    SELECT COUNT(*) AS collisions
+    FROM collisions
+    WHERE collision_severity = 1
+      AND datetime_local >= TIMESTAMP '2023-12-01'
+      AND datetime_local < TIMESTAMP '2024-01-01'
+  expected: [154]
+  note: The same end-of-period trap as above, on the last day of the year.
+
+- question: What was the average number of casualties per collision?
+  shapes: []
+  sql: |
+    SELECT AVG(number_of_casualties) AS casualties_per_collision
+    FROM collisions
+  expected: [1.2755]
+  note: >-
+    Counting the casualties table and dividing by the number of collisions gives the same
+    answer, 132977 / 104258.
+
+- question: What was the average air temperature at the time of fatal collisions?
+  shapes: []
+  sql: |
+    SELECT AVG(temperature_c) AS average_temperature_c
+    FROM collisions
+    WHERE collision_severity = 1
+  expected: [11.5997]
+  note: >-
+    In degrees Celsius, from the ERA5 weather matched to each collision. 66 of the 1522
+    fatal collisions have no temperature, and are left out of the average rather than
+    counted as 0.
+
+- question: How many traffic count points were there on the M25 in 2023?
+  shapes: []
+  sql: |
+    SELECT COUNT(DISTINCT count_point_id) AS count_points
+    FROM aadf
+    WHERE road_name = 'M25'
+      AND year = 2023
+  expected: [51]
+  note: >-
+    The traffic counts cover 2000 to 2025, so the year filter matters. Each count point has
+    one row per year, so counting rows gives the same answer.
+
+- question: List every collision that involved more than 20 vehicles.
+  shapes: [no_rows]
+  sql: |
+    SELECT accident_index, datetime_local, number_of_vehicles
+    FROM collisions
+    WHERE number_of_vehicles > 20
+    ORDER BY datetime_local
+  expected: []
+  note: The most vehicles in any one collision is 17, so the true answer is no rows at all.
+
+- question: How many collisions were there in 2019?
+  shapes: [declined]
+  expected: declined
+  note: >-
+    The collisions in this build are from 2023 only. 2019 is outside that range, so the
+    answer is unknown, not zero.
+
+- question: How many collisions involved a driver who failed a breath test?
+  shapes: [declined]
+  expected: declined
+  note: Breath-test results are not in this build; no table has such a column.
