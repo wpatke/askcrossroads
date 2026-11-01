@@ -353,11 +353,13 @@ noLoading.sanitize = () => Promise.reject(new Error("Charts may not load files o
 
 let chartView = null;   // the chart on the page now, if any
 let lastChart = null;   // what it was drawn from, so it can be redrawn in the other colours
+let drawnWidth = 0;     // how wide the chart's box was when the chart was drawn
 
 async function drawChart(spec, columns, rows) {
   removeChart();
   lastChart = { spec, columns, rows };
   chartBox.hidden = false;   // shown first, so its width is known when sizing the chart
+  drawnWidth = chartBox.clientWidth;
   try {
     const fullSpec = { ...spec, data: { values: rowObjects(columns, rows) } };
     const compiled = vegaLite.compile(fullSpec, { config: chartColours() }).spec;
@@ -459,6 +461,17 @@ new MutationObserver(() => {
     drawChart(lastChart.spec, lastChart.columns, lastChart.rows);
   }
 }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+// The chart is sized to its box once, when it is drawn. The box can narrow afterwards: the
+// window is resized, or the rest of the answer arrives and the page grows a scrollbar. The
+// chart would then be wider than its box, with the legend cut off at the edge. So redraw it
+// whenever the box's width changes. A hidden box (no chart, or a chart that failed) is left
+// alone, so a failed chart is not retried over and over.
+new ResizeObserver(() => {
+  if (lastChart && !chartBox.hidden && chartBox.clientWidth !== drawnWidth) {
+    drawChart(lastChart.spec, lastChart.columns, lastChart.rows);
+  }
+}).observe(chartBox);
 
 // --- The line under the title -----------------------------------------------------------
 
