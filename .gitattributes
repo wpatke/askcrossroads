@@ -1,3 +1,5 @@
-# The vendored chart libraries are pinned by checksum (see src/askcrossroads/static/vendor/README.md).
-# Never convert their line endings, so a Windows checkout gets exactly the pinned bytes.
+# The vendored chart libraries and their licences are pinned by checksum (see
+# src/askcrossroads/static/vendor/README.md). Never convert their line endings, so a Windows
+# checkout gets exactly the pinned bytes.
 src/askcrossroads/static/vendor/*.js -text
+src/askcrossroads/static/vendor/*-LICENSE.txt -text
