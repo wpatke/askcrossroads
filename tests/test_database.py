@@ -5,10 +5,7 @@ everything that will later sit above it. That is the point: spec §11.4 requires
 engine-level guard to hold as if the SQL validator had been bypassed entirely.
 """
 
-import os
 import subprocess
-import sysconfig
-from pathlib import Path
 
 import duckdb
 import pytest
@@ -22,6 +19,7 @@ from askcrossroads.database import (
     open_database,
     validate_conventions,
 )
+from real_command import SCRIPT, base_environment
 
 
 @pytest.fixture
@@ -232,16 +230,15 @@ def run_console_script(database_path, working_directory):
     Ctrl+C, which tests/test_server.py covers. `--no-browser` so that, if a refusal ever
     stopped working, the test could not open a browser tab.
     """
-    script = Path(sysconfig.get_path("scripts")) / "askcrossroads"
-    assert script.exists(), f"console script not found at {script}; is the package installed?"
+    assert SCRIPT.exists(), f"console script not found at {SCRIPT}; is the package installed?"
     return subprocess.run(
-        [str(script), "--no-browser"],
+        [str(SCRIPT), "--no-browser"],
         cwd=working_directory,
         capture_output=True,
         text=True,
         timeout=60,
         env={
-            "PATH": os.environ.get("PATH", ""),
+            **base_environment(),
             "ANTHROPIC_API_KEY": "test-key-not-a-real-credential",
             "ASKCROSSROADS_DB": str(database_path),
         },

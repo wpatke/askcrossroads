@@ -23,7 +23,23 @@ KEY = "test-key-not-a-real-credential"
 # bug could not reach the real API.
 UNREACHABLE = "http://127.0.0.1:9"
 
-SCRIPT = Path(sysconfig.get_path("scripts")) / "askcrossroads"
+# Installing the package creates the `askcrossroads` command in the environment's scripts
+# directory. On Windows that command is an .exe file.
+SCRIPT_NAME = "askcrossroads.exe" if sys.platform == "win32" else "askcrossroads"
+SCRIPT = Path(sysconfig.get_path("scripts")) / SCRIPT_NAME
+
+
+def base_environment():
+    """The smallest environment the command needs to start, before a test adds its own values.
+
+    Built from scratch rather than copied from os.environ, so nothing from the real machine
+    (such as a real API key) leaks into a test. Windows also needs SYSTEMROOT, without which
+    Python can fail to start.
+    """
+    environment = {"PATH": os.environ.get("PATH", "")}
+    if "SYSTEMROOT" in os.environ:
+        environment["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
+    return environment
 
 posix_only = pytest.mark.skipif(
     sys.platform == "win32", reason="stops the server with a POSIX Ctrl+C signal"
@@ -52,7 +68,7 @@ class RealCommand:
         self._stdout = open(workdir / "stdout.txt", "w+")
         self._stderr = open(workdir / "stderr.txt", "w+")
         environment = {
-            "PATH": os.environ.get("PATH", ""),
+            **base_environment(),
             # Somewhere with nothing in it, so no real profile or .env is ever read.
             "HOME": str(workdir),
             "PYTHONUNBUFFERED": "1",

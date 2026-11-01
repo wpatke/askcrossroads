@@ -1,14 +1,13 @@
 """The package installs, imports, and exposes a working console script."""
 
 import importlib
-import os
 import subprocess
-import sysconfig
 from pathlib import Path
 
 import pytest
 
 import askcrossroads
+from real_command import SCRIPT, base_environment
 
 # The modules the repository blueprint (spec §12) requires. Listing them here means a
 # module that is deleted or renamed fails a test rather than failing silently at runtime.
@@ -51,14 +50,13 @@ def test_console_script_runs():
     so this needs no database and no key. Starting the real server is covered in
     tests/test_server.py.
     """
-    script = Path(sysconfig.get_path("scripts")) / "askcrossroads"
-    assert script.exists(), f"console script not found at {script}; is the package installed?"
+    assert SCRIPT.exists(), f"console script not found at {SCRIPT}; is the package installed?"
     result = subprocess.run(
-        [str(script), "--help"],
+        [str(SCRIPT), "--help"],
         capture_output=True,
         text=True,
         timeout=60,
-        env={"PATH": os.environ.get("PATH", "")},
+        env=base_environment(),
     )
     assert result.returncode == 0, result.stderr
     assert "--no-browser" in result.stdout
