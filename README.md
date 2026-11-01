@@ -36,6 +36,16 @@ and, to choose a chart, the result's column names and a handful of sample rows.
 Every example below was asked of the same 2023 Crossroads-UK build. Each number was checked
 against SQL written by hand, and each question was asked twice with identical results.
 
+**Ice on the road, against the air temperature.** The police record the road surface at each
+collision; the ERA5-Land weather data gives the air temperature at that place and hour. They
+are separate sources, and they agree: of the 1,391 collisions on frost or ice that have a
+temperature (70 have none in the weather data), 83% happened below 2°C, peaking between −2
+and 0°C. For all collisions, the median is 11.6°C. The few above 5°C are not necessarily
+errors: ice can linger after the air warms, and the weather data is an average over a grid
+square several kilometres across, not a reading at the roadside.
+
+<img src="docs/assets/frost-ice.png" alt="Question: For collisions where the police recorded the road surface as frost or ice, what was the air temperature at the time, from the weather data? A bar chart of collisions in 1-degree bands peaks between minus 2 and 0 degrees Celsius, with 83% of the 1,391 collisions below 2 degrees and only a handful above 5 degrees.">
+
 **Cyclist collisions by speed limit.** The share of collisions involving a pedal cycle in
 which someone was killed or seriously injured roughly doubles, from 21% at 20 mph to 44% at
 60 mph. Each collision is counted once. 70 mph is left out because it has only 50 collisions.
