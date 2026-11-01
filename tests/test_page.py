@@ -28,7 +28,13 @@ OWN_FILES = ["index.html", "theme.js", "app.js", "style.css"]
 OWN_SCRIPTS = ["theme.js", "app.js"]
 
 # Every file index.html loads, in the order it loads them.
-LINKED = ["style.css", "theme.js", "vendor/vega.min.js", "vendor/vega-lite.min.js", "app.js"]
+LINKED = [
+    "favicon.png", "style.css", "theme.js", "vendor/vega.min.js", "vendor/vega-lite.min.js",
+    "app.js",
+]
+
+# The content type each kind of linked file must be served with.
+CONTENT_TYPES = {".png": "image/png", ".css": "text/css", ".js": "javascript"}
 
 # The page's one link a person can click, to Crossroads-UK's account of where its data comes
 # from. A clicked link loads nothing into this page, so it is checked apart from LINKED.
@@ -118,7 +124,7 @@ def test_every_linked_file_is_served(client, page):
     for link in page.links:
         response = client.get("/" + link)
         assert response.status_code == 200, link
-        expected = "javascript" if link.endswith(".js") else "text/css"
+        expected = CONTENT_TYPES[Path(link).suffix]
         assert expected in response.headers["content-type"], link
 
 
