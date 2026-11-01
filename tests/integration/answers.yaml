@@ -168,6 +168,28 @@
     The traffic counts cover 2000 to 2025, so the year filter matters. Each count point has
     one row per year, so counting rows gives the same answer.
 
+- question: >-
+    How many collisions happened when the sun was low (between 0 and 10 degrees above the
+    horizon) and within 30 degrees of the direction a vehicle was travelling? Count each
+    collision once.
+  shapes: []
+  sql: |
+    SELECT COUNT(DISTINCT collisions.accident_index) AS collisions
+    FROM collisions
+    JOIN vehicles USING (accident_index)
+    WHERE vehicles.vehicle_direction_to BETWEEN 1 AND 8
+      AND collisions.solar_elevation_deg BETWEEN 0 AND 10
+      AND 180 - abs(abs(collisions.solar_azimuth_deg
+                        - (vehicles.vehicle_direction_to - 1) * 45) - 180) <= 30
+  expected: [2577]
+  note: >-
+    Direction codes 1 to 8 are north, north-east and so on round to north-west, so the
+    bearing is (code - 1) * 45 degrees. 0 (parked) and -1 and 9 (unknown) have no direction
+    and are left out. Counting every vehicle that faced the sun gives 3313, because some
+    collisions had more than one; using vehicle_direction_from (where the vehicle came from)
+    gives 2318. Measuring the angle without wrapping round 360 degrees happens to give the
+    same answer in this build, because a low sun in the UK is never close to due north.
+
 - question: List every collision that involved more than 20 vehicles.
   shapes: [no_rows]
   sql: |
