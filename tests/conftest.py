@@ -68,6 +68,28 @@ CODEBOOK_ROWS = [
     ("speed_limit", "70", "70 mph", False),
 ]
 
+# The same codebook in the shape Crossroads-UK 1.1.0 (schema 5) writes: a leading `tbl`
+# column naming the source each code belongs to. Upstream made this change because
+# `escooter_flag` is in both the vehicle and casualty sources with different labels, so
+# (variable, code) no longer identifies a row. Those rows are reproduced here so a test can
+# see the duplicate. There is no casualty table in this fixture, which does not matter:
+# the codebook is reference data and can describe a source the build has no table for.
+CODEBOOK_SOURCE = {
+    "collision_severity": "collision",
+    "weather_conditions": "collision",
+    "speed_limit": "collision",
+    "vehicle_type": "vehicle",
+}
+CODEBOOK_TBL_ROWS = [
+    (CODEBOOK_SOURCE[variable], variable, code, label, is_missing)
+    for variable, code, label, is_missing in CODEBOOK_ROWS
+] + [
+    ("vehicle", "escooter_flag", "0", "Vehicle was not an e-scooter", False),
+    ("vehicle", "escooter_flag", "1", "Vehicle was an e-scooter", False),
+    ("casualty", "escooter_flag", "0", "Casualty was not using an e-scooter", False),
+    ("casualty", "escooter_flag", "1", "Casualty was using an e-scooter", False),
+]
+
 # --- column_manifest --------------------------------------------------------------
 # (tbl, col, kind, dtype). `tbl` is the singular SOURCE name, never the table name.
 # `dtype` is set only for coded and numeric.
@@ -172,12 +194,13 @@ def _coded_columns(source):
     return [col for tbl, col, kind, _ in MANIFEST_ROWS if tbl == source and kind == "coded"]
 
 
-def _labelled_view_sql(table, coded_columns):
+def _labelled_view_sql(table, source, coded_columns, codebook_tbl=False):
     """Build a <table>_labelled view the same way a real Crossroads-UK build does.
 
     One LEFT JOIN to the codebook per coded column, matching on the variable name and on
-    the code cast to VARCHAR. A coded column the codebook does not cover still gets its
-    twin; that twin is simply NULL for every row.
+    the code cast to VARCHAR, and also on the source when the codebook has a `tbl` column.
+    A coded column the codebook does not cover still gets its twin; that twin is simply
+    NULL for every row.
     """
     selects = ["s.*"]
     joins = []
@@ -188,6 +211,7 @@ def _labelled_view_sql(table, coded_columns):
             f"LEFT JOIN codebook AS {alias} "
             f"ON {alias}.variable = '{col}' "
             f"AND {alias}.code = CAST(s.{col} AS VARCHAR)"
+            + (f" AND {alias}.tbl = '{source}'" if codebook_tbl else "")
         )
     return (
         f"CREATE VIEW {table}_labelled AS SELECT "
@@ -200,7 +224,8 @@ def _labelled_view_sql(table, coded_columns):
 def _write_convention_tables(con, *, convention, datasets, years, boundary_mode,
                              crossroads_version, schema_version, built_at_utc,
                              extra_meta_column=False, include_meta_row=True,
-                             codebook_rows=CODEBOOK_ROWS, manifest_rows=MANIFEST_ROWS):
+                             codebook_rows=CODEBOOK_ROWS, manifest_rows=MANIFEST_ROWS,
+                             codebook_tbl=False):
     """Write codebook, column_manifest and crossroads_meta in the requested state."""
     if convention == "missing":
         # A perfectly valid DuckDB file that is simply not a Crossroads-UK build.
@@ -214,11 +239,19 @@ def _write_convention_tables(con, *, convention, datasets, years, boundary_mode,
         con.execute("CREATE TABLE crossroads_meta (version VARCHAR)")
         return
 
-    con.execute(
-        "CREATE TABLE codebook ("
-        "variable VARCHAR, code VARCHAR, label VARCHAR, is_missing BOOLEAN)"
-    )
-    con.executemany("INSERT INTO codebook VALUES (?, ?, ?, ?)", codebook_rows)
+    if codebook_tbl:
+        # The schema 5 shape, with the source each code belongs to.
+        con.execute(
+            "CREATE TABLE codebook ("
+            "tbl VARCHAR, variable VARCHAR, code VARCHAR, label VARCHAR, is_missing BOOLEAN)"
+        )
+        con.executemany("INSERT INTO codebook VALUES (?, ?, ?, ?, ?)", CODEBOOK_TBL_ROWS)
+    else:
+        con.execute(
+            "CREATE TABLE codebook ("
+            "variable VARCHAR, code VARCHAR, label VARCHAR, is_missing BOOLEAN)"
+        )
+        con.executemany("INSERT INTO codebook VALUES (?, ?, ?, ?)", codebook_rows)
 
     con.execute(
         "CREATE TABLE column_manifest (tbl VARCHAR, col VARCHAR, kind VARCHAR, dtype VARCHAR)"
@@ -267,6 +300,7 @@ def build_crossroads_db(
     convention="full",
     extra_meta_column=False,
     include_meta_row=True,
+    codebook_tbl=False,
 ):
     """Build a small synthetic Crossroads-UK database at `path` and return the path.
 
@@ -282,6 +316,9 @@ def build_crossroads_db(
     include_meta_row  a real build always writes exactly one crossroads_meta row.
                 False produces a file whose shape is right but whose provenance is
                 absent.
+    codebook_tbl  give the codebook the `tbl` column Crossroads-UK 1.1.0 (schema 5)
+                added, with `escooter_flag` under two sources. False is the older
+                shape with no `tbl`.
 
     The connection is closed before returning, so the file is complete and can then be
     opened read-only.
@@ -306,6 +343,7 @@ def build_crossroads_db(
             built_at_utc=built_at_utc,
             extra_meta_column=extra_meta_column,
             include_meta_row=include_meta_row,
+            codebook_tbl=codebook_tbl,
         )
 
         con.execute(
@@ -426,7 +464,9 @@ def build_crossroads_db(
         # Labelled views need the codebook, so they exist only on a valid build.
         if convention == "full":
             for source, table in SOURCE_TO_TABLE.items():
-                con.execute(_labelled_view_sql(table, _coded_columns(source)))
+                con.execute(
+                    _labelled_view_sql(table, source, _coded_columns(source), codebook_tbl)
+                )
     finally:
         con.close()
 

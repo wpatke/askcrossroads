@@ -81,6 +81,31 @@ def test_codebook_has_the_upstream_shape(crossroads_db):
         con.close()
 
 
+def test_a_schema_5_codebook_has_the_upstream_shape(crossroads_db_factory):
+    """Crossroads-UK 1.1.0 added `tbl` and made the codebook unique on (tbl, variable, code)."""
+    con = open_db(crossroads_db_factory(codebook_tbl=True))
+    try:
+        assert columns_of(con, "codebook") == {
+            "tbl": "VARCHAR",
+            "variable": "VARCHAR",
+            "code": "VARCHAR",
+            "label": "VARCHAR",
+            "is_missing": "BOOLEAN",
+        }
+        # Unique on all three...
+        assert con.execute(
+            "SELECT COUNT(*) FROM (SELECT tbl, variable, code FROM codebook "
+            "GROUP BY ALL HAVING COUNT(*) > 1)"
+        ).fetchone()[0] == 0
+        # ...but not on (variable, code) alone, which is the case the application must handle.
+        assert con.execute(
+            "SELECT COUNT(*) FROM (SELECT variable, code FROM codebook "
+            "GROUP BY ALL HAVING COUNT(*) > 1)"
+        ).fetchone()[0] > 0
+    finally:
+        con.close()
+
+
 def test_column_manifest_has_the_upstream_shape(crossroads_db):
     con = open_db(crossroads_db)
     try:
