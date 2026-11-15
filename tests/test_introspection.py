@@ -5,10 +5,11 @@ Where a test names a table or a column it is naming what the FIXTURE built, whic
 input — src/ still contains none of these names.
 """
 
+import duckdb
 import pytest
 
 from askcrossroads.database import Database
-from askcrossroads.introspection import is_temporal
+from askcrossroads.introspection import is_temporal, load_codebook
 
 from conftest import AADF, BANK_HOLIDAYS, ERA5_WEATHER, STATS19
 
@@ -191,6 +192,93 @@ def test_codes_are_strings_and_missing_sentinels_are_flagged(context):
 def test_the_codebook_is_sorted_explicitly(context):
     keys = [(entry.variable, entry.code) for entry in context.codebook]
     assert keys == sorted(keys)
+
+
+def test_a_codebook_without_tbl_leaves_tbl_unset(context):
+    """A build from before codebook.tbl existed loads exactly as it always did."""
+    assert all(entry.tbl is None for entry in context.codebook)
+
+
+def test_a_codebook_with_tbl_carries_the_source_of_each_code(crossroads_db_factory):
+    with Database.open(crossroads_db_factory(codebook_tbl=True)) as database:
+        codebook = database.context.codebook
+    assert all(entry.tbl is not None for entry in codebook)
+    # The variable that appears in two sources keeps both, each with its own label.
+    shared = {
+        (entry.tbl, entry.label)
+        for entry in codebook
+        if entry.variable == "escooter_flag" and entry.code == "1"
+    }
+    assert shared == {
+        ("vehicle", "Vehicle was an e-scooter"),
+        ("casualty", "Casualty was using an e-scooter"),
+    }
+
+
+def test_a_codebook_with_tbl_is_sorted_by_tbl_first(crossroads_db_factory):
+    with Database.open(crossroads_db_factory(codebook_tbl=True)) as database:
+        keys = [(e.tbl, e.variable, e.code) for e in database.context.codebook]
+    assert keys == sorted(keys)
+
+
+# Rows that share (variable, code) and differ only in tbl, as upstream's escooter_flag does.
+# Without tbl in the sort key, the order of these two would be whatever the engine returned.
+_SHARED_ROWS = [
+    ("casualty", "escooter_flag", "1", "Casualty was using an e-scooter", False),
+    ("vehicle", "escooter_flag", "1", "Vehicle was an e-scooter", False),
+    ("collision", "collision_severity", "1", "Fatal", False),
+    ("collision", "collision_severity", "-1", "Data missing or out of range", True),
+]
+
+
+def _codebook_in_memory(rows, with_tbl):
+    """An in-memory database holding only a codebook, with rows inserted in the given order."""
+    con = duckdb.connect()
+    if with_tbl:
+        con.execute(
+            "CREATE TABLE codebook ("
+            "tbl VARCHAR, variable VARCHAR, code VARCHAR, label VARCHAR, is_missing BOOLEAN)"
+        )
+        con.executemany("INSERT INTO codebook VALUES (?, ?, ?, ?, ?)", rows)
+    else:
+        con.execute(
+            "CREATE TABLE codebook ("
+            "variable VARCHAR, code VARCHAR, label VARCHAR, is_missing BOOLEAN)"
+        )
+        con.executemany(
+            "INSERT INTO codebook VALUES (?, ?, ?, ?)", [row[1:] for row in rows]
+        )
+    return con
+
+
+@pytest.mark.parametrize("with_tbl", [True, False])
+def test_codebook_order_does_not_depend_on_insertion_order(with_tbl):
+    """Spec §3: the same codebook gives the same order, however the engine returns it.
+
+    Without tbl, two rows here share (variable, code) exactly, which is what a schema 5
+    codebook looks like if its tbl column were ignored. The order must still be fixed.
+    """
+    forwards = _codebook_in_memory(_SHARED_ROWS, with_tbl)
+    backwards = _codebook_in_memory(list(reversed(_SHARED_ROWS)), with_tbl)
+    try:
+        assert load_codebook(forwards) == load_codebook(backwards)
+    finally:
+        forwards.close()
+        backwards.close()
+
+
+def test_codebook_order_with_tbl_is_tbl_then_variable_then_code():
+    con = _codebook_in_memory(list(reversed(_SHARED_ROWS)), with_tbl=True)
+    try:
+        keys = [(e.tbl, e.variable, e.code) for e in load_codebook(con)]
+    finally:
+        con.close()
+    assert keys == [
+        ("casualty", "escooter_flag", "1"),
+        ("collision", "collision_severity", "-1"),
+        ("collision", "collision_severity", "1"),
+        ("vehicle", "escooter_flag", "1"),
+    ]
 
 
 def test_the_manifest_is_loaded_and_sorted(context):

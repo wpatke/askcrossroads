@@ -173,6 +173,55 @@ def test_a_weatherless_build_offers_no_weather_relation(crossroads_db_factory):
         )
 
 
+# --- The codebook's tbl column, when the build has one ---------------------------------
+# Crossroads-UK 1.1.0 (schema 5) added codebook.tbl because one variable can appear in two
+# sources with different labels. A join on variable and code alone then matches two rows
+# and double-counts, so the prompt must show tbl and say to match on it. Older builds have
+# no tbl and their prompt must not change at all.
+
+
+def _codebook_section(text):
+    """The codebook section: from its heading to the end of the prefix (it comes last)."""
+    return text[text.index("## Codebook"):]
+
+
+def test_a_codebook_without_tbl_renders_as_before(crossroads_db):
+    text = _prefix(crossroads_db)
+    lines = text.splitlines()
+    assert lines[lines.index("## Codebook") + 1] == "variable | code | label | missing"
+    assert "tbl" not in _codebook_section(text)
+    assert "collision_severity | 1 | Fatal | no" in lines
+
+
+def test_a_codebook_with_tbl_shows_the_source_of_every_code(crossroads_db_factory):
+    path = crossroads_db_factory(codebook_tbl=True)
+    context = _context(path)
+    text = prompt.serialise_context(context)
+    lines = text.splitlines()
+    assert lines[lines.index("## Codebook") + 1] == "tbl | variable | code | label | missing"
+    # Every row is still there, one line each, and the shared variable shows up once per source.
+    assert len(_section_rows(text, "## Codebook")) == len(context.codebook)
+    assert "vehicle | escooter_flag | 1 | Vehicle was an e-scooter | no" in lines
+    assert "casualty | escooter_flag | 1 | Casualty was using an e-scooter | no" in lines
+
+
+def test_a_codebook_with_tbl_tells_the_model_to_match_on_it(crossroads_db_factory):
+    section = _flat(_codebook_section(_prefix(crossroads_db_factory(codebook_tbl=True))))
+    assert "must match tbl as well as variable and code" in section
+    assert "column_manifest.tbl" in section
+
+
+def test_the_tbl_note_appears_only_when_the_build_has_tbl(crossroads_db):
+    assert _flat(prompt._CODEBOOK_TBL_NOTE) not in _flat(_prefix(crossroads_db))
+
+
+def test_a_codebook_with_tbl_gives_a_stable_prefix(crossroads_db_factory):
+    first = crossroads_db_factory(codebook_tbl=True)
+    second = crossroads_db_factory(codebook_tbl=True)
+    assert _prefix(first) == _prefix(first)
+    assert _prefix(first) == _prefix(second)
+
+
 # --- Nothing about the schema is hardcoded (spec §2C) ---------------------------------
 
 
@@ -289,6 +338,7 @@ def test_prompts_name_nothing_about_the_schema():
     for name, text in (
         ("SQL_SYSTEM_PROMPT", prompt.SQL_SYSTEM_PROMPT),
         ("CHART_SYSTEM_PROMPT", prompt.CHART_SYSTEM_PROMPT),
+        ("_CODEBOOK_TBL_NOTE", prompt._CODEBOOK_TBL_NOTE),
     ):
         lowered = text.lower()
         for word in FORBIDDEN_IN_PROMPTS:

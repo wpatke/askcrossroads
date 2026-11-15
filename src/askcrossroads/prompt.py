@@ -141,14 +141,47 @@ def _codebook_section(entries):
     is_missing matters and is not decoration: Crossroads-UK replaces those codes with NULL
     when it builds the silver tables, so a model that does not know a code was removed will
     write a filter on it and get nothing back.
+
+    Newer builds give every code a `tbl`, the source it belongs to, because one variable
+    name can appear in two sources with different labels. A join to the codebook on
+    variable and code alone then matches two rows and counts everything twice: a silent
+    wrong answer. So when the build has `tbl`, each row shows it and a note after the rows
+    says to match on it.
+
+    When the build has no `tbl` (introspection sets it to None on every entry), the section
+    is exactly what it always was, so the prompt for those builds does not change.
     """
-    lines = ["## Codebook", "variable | code | label | missing"]
+    has_tbl = any(entry.tbl is not None for entry in entries)
+
+    if not has_tbl:
+        lines = ["## Codebook", "variable | code | label | missing"]
+        for entry in entries:
+            lines.append(
+                f"{_escape(entry.variable)} | {_escape(entry.code)} | "
+                f"{_escape(entry.label)} | {'yes' if entry.is_missing else 'no'}"
+            )
+        return "\n".join(lines)
+
+    lines = ["## Codebook", "tbl | variable | code | label | missing"]
     for entry in entries:
         lines.append(
-            f"{_escape(entry.variable)} | {_escape(entry.code)} | "
+            f"{_escape(entry.tbl)} | {_escape(entry.variable)} | {_escape(entry.code)} | "
             f"{_escape(entry.label)} | {'yes' if entry.is_missing else 'no'}"
         )
+    # The note follows a blank line, so the rows above stay one unbroken block. It names
+    # only the convention tables and their columns, which spec §2C permits.
+    lines.append("")
+    lines.append(_CODEBOOK_TBL_NOTE)
     return "\n".join(lines)
+
+
+# Shown after the codebook rows only when the build's codebook has a `tbl` column.
+_CODEBOOK_TBL_NOTE = """\
+The same variable can appear under more than one tbl, with a different label in each. Any \
+join to codebook must match tbl as well as variable and code, or it returns one row per \
+tbl and counts every matching row more than once. The tbl values are the same source \
+names column_manifest.tbl uses (see the column classifications above), not the names of \
+the tables in the schema."""
 
 
 def serialise_context(context):

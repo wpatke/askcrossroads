@@ -57,11 +57,13 @@ Crossroads-UK ships its semantics as data. AskCrossroads reads three of those ta
 
 | Table | Columns read | What it gives AskCrossroads |
 |-------|--------------|-----------------------------|
-| `codebook` | `variable`, `code`, `label`, `is_missing` | The DfT English label for every integer code (e.g. `collision_severity` `1` → *Fatal*), and which codes are missing/unknown sentinels. |
+| `codebook` | `variable`, `code`, `label`, `is_missing`, and `tbl` where present | The DfT English label for every integer code (e.g. `collision_severity` `1` → *Fatal*), and which codes are missing/unknown sentinels. `tbl` is the source each code belongs to. |
 | `column_manifest` | `tbl`, `col`, `kind`, `dtype` | The classification of every source column. The rows where `kind = 'coded'` are exactly the columns that need translation. |
 | `crossroads_meta` | `crossroads_version`, `schema_version`, `built_at_utc`, `parameters` | Build provenance: which version built this file, with which datasets, years, and boundary mode. |
 
-The join between the first two is `column_manifest.col = codebook.variable`.
+The join between the first two is `column_manifest.col = codebook.variable`, and also `column_manifest.tbl = codebook.tbl` where the codebook has `tbl`.
+
+`codebook.tbl` arrived in Crossroads-UK 1.1.0 (schema 5). One variable name can appear in two sources with different labels (`escooter_flag` is in both the vehicle and casualty files), so the codebook is unique on (`tbl`, `variable`, `code`) rather than (`variable`, `code`). A join to the codebook on `variable` and `code` alone then matches two rows and silently double-counts. AskCrossroads therefore checks for the column at runtime, not by version. When it is present, the prompt shows each code's `tbl` and tells the model to match on it, and the codebook is sorted on it so the prefix stays byte-stable (§3). It is not required: a build without it is accepted, and its prompt is unchanged.
 
 Because these tables travel inside each `.db` file, the semantics always match the build that produced them. A database built by an older Crossroads-UK release carries that release's codebook; a database built tomorrow carries tomorrow's. There is no sync problem, no vendored copy to refresh, and no version of AskCrossroads that is "out of date" with respect to a user's file.
 

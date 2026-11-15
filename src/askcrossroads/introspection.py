@@ -71,12 +71,19 @@ class Relation:
 
 @dataclass(frozen=True)
 class CodebookEntry:
-    """One code and its DfT English label (spec §2B)."""
+    """One code and its DfT English label (spec §2B).
+
+    `tbl` is the source the code belongs to ('collision', 'vehicle', ...), using the same
+    singular source names as ManifestEntry.tbl. Newer builds have it because one variable
+    name can appear in two sources with different labels. Older builds have no such column,
+    and then `tbl` is None for every entry.
+    """
 
     variable: str
     code: str          # a STRING upstream: '1', '-1'. Never cast to an integer.
     label: str
     is_missing: bool   # True when the code is a missing/unknown sentinel
+    tbl: object = None  # the source name, or None when the build's codebook has no tbl
 
 
 @dataclass(frozen=True)
@@ -151,18 +158,36 @@ def discover_relations(connection):
 
 
 def load_codebook(connection):
-    """Every codebook row, sorted by (variable, code).
+    """Every codebook row, sorted by (tbl, variable, code).
+
+    Newer builds give the codebook a `tbl` column, because one variable name can appear
+    in two sources with different labels, so (variable, code) alone no longer identifies a
+    row. Older builds have no `tbl` column. Which shape this file has is read from the
+    file itself rather than inferred from its version number (spec §2D). When there is no
+    `tbl`, every entry's tbl is None and the order is exactly what it always was.
 
     Sorted here in Python with an explicit key rather than with ORDER BY, so the order
     cannot depend on the engine's collation. Spec §3 requires the prompt prefix to be
     byte-identical for a given database, and that is only true if this order is fixed.
+    The key covers every field, so even two rows sharing (tbl, variable, code) cannot
+    swap places between one load and the next.
 
     `code` is a string upstream ('1', '-1'), so this is a string sort: '10' sorts before
     '2'. Stability matters more than numeric prettiness, and nothing downstream reads
     meaning into the order.
     """
+    # Ask for no rows, just the column names. This resolves `codebook` exactly as the real
+    # query below does, so it cannot look at a different table by mistake.
+    columns = [
+        column[0]
+        for column in connection.execute("SELECT * FROM codebook LIMIT 0").description
+    ]
+    has_tbl = "tbl" in columns
+
     rows = connection.execute(
-        "SELECT variable, code, label, is_missing FROM codebook"
+        "SELECT variable, code, label, is_missing, "
+        + ("tbl" if has_tbl else "NULL")
+        + " FROM codebook"
     ).fetchall()
     entries = [
         CodebookEntry(
@@ -171,10 +196,18 @@ def load_codebook(connection):
             label=label,
             # NULL is not a missing-sentinel marker; it just is not one.
             is_missing=bool(is_missing),
+            tbl=tbl,
         )
-        for variable, code, label, is_missing in rows
+        for variable, code, label, is_missing, tbl in rows
     ]
-    return tuple(sorted(entries, key=lambda e: (e.variable or "", e.code or "")))
+    return tuple(
+        sorted(
+            entries,
+            key=lambda e: (
+                e.tbl or "", e.variable or "", e.code or "", e.label or "", e.is_missing
+            ),
+        )
+    )
 
 
 def load_column_manifest(connection):
